@@ -94,6 +94,71 @@ function loadBlocksForDocuments(documentIds = []) {
   return grouped
 }
 
+function loadListMetadata(documentIds = []) {
+  if (!documentIds.length) {
+    return {
+      blockCountByDocumentId: new Map(),
+      firstTextByDocumentId: new Map(),
+    }
+  }
+
+  const placeholders = documentIds.map(() => '?').join(', ')
+  const countRows = all(
+    `SELECT document_id, COUNT(*) AS block_count
+     FROM blocks
+     WHERE document_id IN (${placeholders})
+     GROUP BY document_id`,
+    documentIds
+  )
+  const firstTextRows = all(
+    `SELECT document_id, content
+     FROM (
+       SELECT
+         document_id,
+         content,
+         ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY sort_order ASC, id ASC) AS row_num
+       FROM blocks
+       WHERE document_id IN (${placeholders})
+         AND type IN (?, ?)
+         AND TRIM(content) != ''
+     ) ranked
+     WHERE row_num = 1`,
+    [...documentIds, BLOCK_TYPES.TEXT, BLOCK_TYPES.IMPORTED_TEXT]
+  )
+
+  return {
+    blockCountByDocumentId: new Map(
+      countRows.map((row) => [Number(row.document_id), Number(row.block_count)])
+    ),
+    firstTextByDocumentId: new Map(
+      firstTextRows.map((row) => [Number(row.document_id), row.content || ''])
+    ),
+  }
+}
+
+function collectImagePaths(blocks = []) {
+  return blocks
+    .filter((block) => block.type === BLOCK_TYPES.IMAGE && block.content)
+    .map((block) => block.content)
+}
+
+function mapDocumentSummary(row, firstText = '', blockCount = 0) {
+  const textBlock = firstText
+    ? [{ type: BLOCK_TYPES.TEXT, content: firstText }]
+    : []
+
+  return {
+    slug: row.slug,
+    title: row.title || deriveTitleFromBlocks(textBlock) || '未命名文档',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    visibility: row.visibility,
+    expiresAt: row.expires_at,
+    preview: summarizeDocument({ blocks: textBlock }),
+    blockCount,
+  }
+}
+
 function normalizeBlockInput(block = {}) {
   const type =
     block.type === BLOCK_TYPES.IMAGE
@@ -135,23 +200,19 @@ export function listDocuments(limit = 30) {
   )
 
   const documentIds = rows.map((row) => Number(row.id))
-  const blocksByDocumentId = loadBlocksForDocuments(documentIds)
+  const {
+    blockCountByDocumentId,
+    firstTextByDocumentId,
+  } = loadListMetadata(documentIds)
 
   return rows
-    .map((row) => {
-      const blocks = blocksByDocumentId.get(Number(row.id)) || []
-      const document = toDocument(row, blocks)
-      return {
-        slug: document.slug,
-        title: document.displayTitle || '未命名文档',
-        createdAt: document.createdAt,
-        updatedAt: document.updatedAt,
-        visibility: document.visibility,
-        expiresAt: document.expiresAt,
-        preview: summarizeDocument(document),
-        blockCount: document.blocks.length,
-      }
-    })
+    .map((row) =>
+      mapDocumentSummary(
+        row,
+        firstTextByDocumentId.get(Number(row.id)) || '',
+        blockCountByDocumentId.get(Number(row.id)) || 0
+      )
+    )
 }
 
 export function getDocumentBySlug(slug) {
@@ -269,10 +330,43 @@ export function deleteDocument(slug, editToken) {
     return { error: 'forbidden' }
   }
 
+  const blocks = loadBlocks(row.id)
+  const removedAssets = collectImagePaths(blocks)
+
   transaction(() => {
     run('DELETE FROM documents WHERE slug = ?', [slug])
   })
-  return { ok: true }
+  return { ok: true, removedAssets }
+}
+
+export function purgeExpiredDocuments(now = new Date().toISOString()) {
+  const rows = all(
+    `SELECT id
+     FROM documents
+     WHERE expires_at IS NOT NULL
+       AND expires_at <= ?`,
+    [now]
+  )
+
+  if (!rows.length) {
+    return { removedAssets: [], removedCount: 0 }
+  }
+
+  const documentIds = rows.map((row) => Number(row.id))
+  const blocksByDocumentId = loadBlocksForDocuments(documentIds)
+  const removedAssets = documentIds.flatMap((documentId) =>
+    collectImagePaths(blocksByDocumentId.get(documentId) || [])
+  )
+
+  const placeholders = documentIds.map(() => '?').join(', ')
+  transaction(() => {
+    run(`DELETE FROM documents WHERE id IN (${placeholders})`, documentIds)
+  })
+
+  return {
+    removedAssets,
+    removedCount: documentIds.length,
+  }
 }
 
 export function buildDocumentExports(document) {

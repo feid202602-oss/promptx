@@ -15,6 +15,7 @@ import {
   deleteDocument,
   getDocumentBySlug,
   listDocuments,
+  purgeExpiredDocuments,
   updateDocument,
 } from './repository.js'
 
@@ -26,6 +27,41 @@ const tmpDir = path.resolve(process.cwd(), 'tmp')
 
 fs.mkdirSync(uploadsDir, { recursive: true })
 fs.mkdirSync(tmpDir, { recursive: true })
+
+let lastExpiredPurgeAt = 0
+
+function resolveUploadPath(assetPath = '') {
+  const normalized = String(assetPath || '').replace(/^\/+/, '')
+  if (!normalized.startsWith('uploads/')) {
+    return null
+  }
+
+  const absolutePath = path.resolve(process.cwd(), normalized)
+  return absolutePath.startsWith(`${uploadsDir}${path.sep}`) ? absolutePath : null
+}
+
+function removeAssetFiles(assetPaths = []) {
+  const uniquePaths = [...new Set(assetPaths)]
+  uniquePaths.forEach((assetPath) => {
+    const targetPath = resolveUploadPath(assetPath)
+    if (targetPath) {
+      fs.rmSync(targetPath, { force: true })
+    }
+  })
+}
+
+function purgeExpiredContent(force = false) {
+  const now = Date.now()
+  if (!force && now - lastExpiredPurgeAt < 60 * 1000) {
+    return
+  }
+
+  lastExpiredPurgeAt = now
+  const result = purgeExpiredDocuments(new Date(now).toISOString())
+  if (result.removedAssets.length) {
+    removeAssetFiles(result.removedAssets)
+  }
+}
 
 await app.register(cors, {
   origin: true,
@@ -52,16 +88,21 @@ app.get('/api/meta', async () => ({
   visibilityOptions: VISIBILITY_OPTIONS,
 }))
 
-app.get('/api/documents', async () => ({
-  items: listDocuments(),
-}))
+app.get('/api/documents', async () => {
+  purgeExpiredContent()
+  return {
+    items: listDocuments(),
+  }
+})
 
 app.post('/api/documents', async (request, reply) => {
+  purgeExpiredContent()
   const document = createDocument(request.body || {})
   return reply.code(201).send(document)
 })
 
 app.get('/api/documents/:slug', async (request, reply) => {
+  purgeExpiredContent()
   const document = getDocumentBySlug(request.params.slug)
   if (!document) {
     return reply.code(404).send({ message: '文档不存在。' })
@@ -77,6 +118,7 @@ app.get('/api/documents/:slug', async (request, reply) => {
 })
 
 app.put('/api/documents/:slug', async (request, reply) => {
+  purgeExpiredContent()
   const result = updateDocument(request.params.slug, request.body || {})
   if (result.error === 'not_found') {
     return reply.code(404).send({ message: '文档不存在。' })
@@ -88,6 +130,7 @@ app.put('/api/documents/:slug', async (request, reply) => {
 })
 
 app.delete('/api/documents/:slug', async (request, reply) => {
+  purgeExpiredContent()
   const result = deleteDocument(request.params.slug, request.body?.editToken)
   if (result.error === 'not_found') {
     return reply.code(404).send({ message: '文档不存在。' })
@@ -95,6 +138,7 @@ app.delete('/api/documents/:slug', async (request, reply) => {
   if (result.error === 'forbidden') {
     return reply.code(403).send({ message: '编辑凭证无效。' })
   }
+  removeAssetFiles(result.removedAssets)
   return reply.code(204).send()
 })
 
@@ -103,30 +147,44 @@ app.post('/api/uploads', async (request, reply) => {
   if (!part) {
     return reply.code(400).send({ message: '没有收到上传文件。' })
   }
+  if (!String(part.mimetype || '').startsWith('image/')) {
+    return reply.code(400).send({ message: '只支持上传图片文件。' })
+  }
 
   const tempPath = path.join(tmpDir, `${nanoid(12)}-${part.filename || 'upload'}`)
-  await pipeline(part.file, fs.createWriteStream(tempPath))
+  let outputPath = ''
+  let completed = false
 
-  const image = await Jimp.read(tempPath)
-  image.scaleToFit({ w: 1600, h: 1600 })
+  try {
+    await pipeline(part.file, fs.createWriteStream(tempPath))
 
-  const outputName = `${nanoid(16)}.jpg`
-  const outputPath = path.join(uploadsDir, outputName)
-  const outputBuffer = await image.getBuffer('image/jpeg', { quality: 82 })
-  fs.writeFileSync(outputPath, outputBuffer)
-  fs.rmSync(tempPath, { force: true })
+    const image = await Jimp.read(tempPath)
+    image.scaleToFit({ w: 1600, h: 1600 })
 
-  const stats = fs.statSync(outputPath)
-  return reply.code(201).send({
-    url: `/uploads/${outputName}`,
-    width: image.bitmap.width,
-    height: image.bitmap.height,
-    mimeType: 'image/jpeg',
-    size: stats.size,
-  })
+    const outputName = `${nanoid(16)}.jpg`
+    outputPath = path.join(uploadsDir, outputName)
+    const outputBuffer = await image.getBuffer('image/jpeg', { quality: 82 })
+    fs.writeFileSync(outputPath, outputBuffer)
+
+    const stats = fs.statSync(outputPath)
+    completed = true
+    return reply.code(201).send({
+      url: `/uploads/${outputName}`,
+      width: image.bitmap.width,
+      height: image.bitmap.height,
+      mimeType: 'image/jpeg',
+      size: stats.size,
+    })
+  } finally {
+    fs.rmSync(tempPath, { force: true })
+    if (outputPath && !completed) {
+      fs.rmSync(outputPath, { force: true })
+    }
+  }
 })
 
 app.get('/p/:slug/raw', async (request, reply) => {
+  purgeExpiredContent()
   const document = getDocumentBySlug(request.params.slug)
   if (!document || document.expired) {
     return reply.code(404).type('text/plain; charset=utf-8').send('文档不存在。')
@@ -141,6 +199,8 @@ app.setErrorHandler((error, request, reply) => {
   const message = error.statusCode === 413 ? '文件太大了。' : error.message || '发生了意外错误。'
   reply.code(error.statusCode || 500).send({ message })
 })
+
+purgeExpiredContent(true)
 
 app.listen({ port, host }).then(() => {
   app.log.info(`server running at http://${host}:${port}`)

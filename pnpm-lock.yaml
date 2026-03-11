@@ -40,6 +40,9 @@ importers:
       '@tmpprompt/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      lucide-vue-next:
+        specifier: ^0.577.0
+        version: 0.577.0(vue@3.5.30)
       vue:
         specifier: ^3.5.22
         version: 3.5.30
@@ -911,6 +914,11 @@ packages:
   lru-cache@11.2.6:
     resolution: {integrity: sha512-ESL2CrkS/2wTPfuend7Zhkzo2u0daGJ/A2VucJOgQ/C48S/zB8MMeMHSGKYpXhIjbPxfuezITkaBH1wqv00DDQ==}
     engines: {node: 20 || >=22}
+
+  lucide-vue-next@0.577.0:
+    resolution: {integrity: sha512-py05bAfv9SHVJqscbiOnjcnLlEmOffA58a+7XhZuFxrs6txe1E8VoR1ngWGTYO+9aVKABAz8l3ee3PqiQN9QPA==}
+    peerDependencies:
+      vue: '>=3.0.1'
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -2216,6 +2224,10 @@ snapshots:
   lines-and-columns@1.2.4: {}
 
   lru-cache@11.2.6: {}
+
+  lucide-vue-next@0.577.0(vue@3.5.30):
+    dependencies:
+      vue: 3.5.30
 
   magic-string@0.30.21:
     dependencies:

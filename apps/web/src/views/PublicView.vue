@@ -1,5 +1,13 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import {
+  ArrowLeft,
+  Clock3,
+  Copy,
+  FileText,
+  Image as ImageIcon,
+  SquarePen,
+} from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import TopToast from '../components/TopToast.vue'
 import { useToast } from '../composables/useToast.js'
@@ -15,6 +23,7 @@ const rawUrl = computed(() => `${getApiBase()}/p/${slug.value}/raw`)
 const canEdit = computed(() => Boolean(getEditToken(slug.value)))
 const collapsedMap = ref({})
 const { toastMessage, flashToast } = useToast()
+let loadRequestId = 0
 
 function syncCollapsedState(blocks = []) {
   collapsedMap.value = Object.fromEntries(
@@ -23,10 +32,14 @@ function syncCollapsedState(blocks = []) {
 }
 
 async function loadDocument() {
+  const requestId = ++loadRequestId
   loading.value = true
   error.value = ''
   try {
     const payload = await getDocument(slug.value)
+    if (requestId !== loadRequestId) {
+      return
+    }
     document.value = {
       ...payload,
       blocks: payload.blocks.map((block) => ({
@@ -36,9 +49,14 @@ async function loadDocument() {
     }
     syncCollapsedState(document.value.blocks)
   } catch (err) {
+    if (requestId !== loadRequestId) {
+      return
+    }
     error.value = err.message
   } finally {
-    loading.value = false
+    if (requestId === loadRequestId) {
+      loading.value = false
+    }
   }
 }
 
@@ -80,13 +98,23 @@ watch(slug, () => {
 
     <template v-else>
       <header class="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <RouterLink to="/" class="text-sm text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100">
-          返回首页
+        <RouterLink to="/" class="inline-flex items-center gap-2 text-sm text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100">
+          <ArrowLeft class="h-4 w-4" />
+          <span>返回首页</span>
         </RouterLink>
         <div class="flex flex-wrap gap-2">
-          <RouterLink v-if="canEdit" :to="`/edit/${slug}`" class="tool-button px-3 py-2 text-xs">编辑</RouterLink>
-          <button type="button" class="tool-button px-3 py-2 text-xs" @click="copyCodexPrompt">复制给 Codex</button>
-          <a :href="rawUrl" class="tool-button px-3 py-2 text-xs">Raw 文本</a>
+          <RouterLink v-if="canEdit" :to="`/edit/${slug}`" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs">
+            <SquarePen class="h-4 w-4" />
+            <span>编辑</span>
+          </RouterLink>
+          <button type="button" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs" @click="copyCodexPrompt">
+            <Copy class="h-4 w-4" />
+            <span>复制给 Codex</span>
+          </button>
+          <a :href="rawUrl" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs">
+            <FileText class="h-4 w-4" />
+            <span>Raw 文本</span>
+          </a>
         </div>
       </header>
 
@@ -97,7 +125,10 @@ watch(slug, () => {
           </div>
         </div>
         <div class="text-xs text-stone-500 dark:text-stone-400">
-          <span>{{ new Date(document.updatedAt).toLocaleString('zh-CN') }}</span>
+          <span class="inline-flex items-center gap-1">
+            <Clock3 class="h-3.5 w-3.5" />
+            <span>{{ new Date(document.updatedAt).toLocaleString('zh-CN') }}</span>
+          </span>
           <span v-if="document.expiresAt"> · {{ new Date(document.expiresAt).toLocaleString('zh-CN') }} 过期</span>
         </div>
 
@@ -127,6 +158,10 @@ watch(slug, () => {
             </div>
           </div>
           <div v-else class="overflow-hidden rounded-sm bg-stone-100 dark:bg-stone-900">
+            <div class="flex items-center gap-2 border-b border-stone-200 px-4 py-3 text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">
+              <ImageIcon class="h-4 w-4" />
+              <span>图片内容</span>
+            </div>
             <img :src="block.content" alt="上传图片" class="w-full object-contain" />
           </div>
         </div>

@@ -46,10 +46,17 @@ db.run(`
   CREATE INDEX IF NOT EXISTS idx_blocks_document_sort ON blocks(document_id, sort_order ASC);
 `)
 
+// Clean up leftovers created before foreign keys were enforced.
+db.run(`
+  DELETE FROM blocks
+  WHERE document_id NOT IN (SELECT id FROM documents);
+`)
+
 persist()
 
 export function persist() {
   fs.writeFileSync(dbPath, Buffer.from(db.export()))
+  db.run('PRAGMA foreign_keys = ON;')
 }
 
 export function all(sql, params = []) {

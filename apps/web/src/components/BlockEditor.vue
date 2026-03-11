@@ -1,5 +1,14 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
+import {
+  ChevronDown,
+  FileText,
+  Image as ImageIcon,
+  LoaderCircle,
+  ScanText,
+  Trash2,
+  Upload,
+} from 'lucide-vue-next'
 import { BLOCK_TYPES } from '@tmpprompt/shared'
 
 const props = defineProps({
@@ -551,18 +560,29 @@ defineExpose({
     @paste="handleSurfacePaste"
   >
     <div class="border-b border-stone-200 px-5 py-4 text-sm text-stone-600 dark:border-stone-800 dark:text-stone-400">
-      <p class="font-medium text-stone-900 dark:text-stone-100">直接在这里输入文本，或粘贴截图。</p>
+      <p class="inline-flex items-center gap-2 font-medium text-stone-900 dark:text-stone-100">
+        <ScanText class="h-4 w-4" />
+        <span>直接在这里输入文本，或粘贴截图。</span>
+      </p>
       <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
-        <span>支持拖拽图片到编辑区</span>
+        <span class="inline-flex items-center gap-1.5">
+          <ImageIcon class="h-3.5 w-3.5" />
+          <span>支持拖拽图片到编辑区</span>
+        </span>
         <span class="text-stone-300 dark:text-stone-700">/</span>
-        <span>支持拖入 `.md` / `.txt` 文件</span>
+        <span class="inline-flex items-center gap-1.5">
+          <FileText class="h-3.5 w-3.5" />
+          <span>支持拖入 `.md` / `.txt` 文件</span>
+        </span>
         <span class="text-stone-300 dark:text-stone-700">/</span>
-        <label class="cursor-pointer text-stone-700 underline decoration-stone-300 underline-offset-4 dark:text-stone-200 dark:decoration-stone-700">
-          选择文件
+        <label class="inline-flex cursor-pointer items-center gap-1.5 text-stone-700 underline decoration-stone-300 underline-offset-4 dark:text-stone-200 dark:decoration-stone-700">
+          <Upload class="h-3.5 w-3.5" />
+          <span>选择文件</span>
           <input class="hidden" type="file" accept="image/*,.md,.markdown,.txt,text/plain,text/markdown" multiple @change="handleFileInput" />
         </label>
-        <span v-if="uploading" class="rounded-sm border border-dashed border-stone-400 px-2 py-1 dark:border-stone-700">
-          正在上传图片...
+        <span v-if="uploading" class="inline-flex items-center gap-1.5 rounded-sm border border-dashed border-stone-400 px-2 py-1 dark:border-stone-700">
+          <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
+          <span>正在上传图片...</span>
         </span>
       </div>
     </div>
@@ -585,10 +605,11 @@ defineExpose({
           />
           <button
             type="button"
-            class="absolute right-0 top-1 tool-button px-2 py-1 text-xs text-red-700 opacity-0 transition group-hover:opacity-100 focus:opacity-100 dark:text-red-300"
+            class="absolute right-0 top-1 tool-button inline-flex items-center gap-1.5 px-2 py-1 text-xs text-red-700 opacity-0 transition group-hover:opacity-100 focus:opacity-100 dark:text-red-300"
             @click="removeBlock(index)"
           >
-            删除
+            <Trash2 class="h-3.5 w-3.5" />
+            <span>删除</span>
           </button>
         </div>
 
@@ -600,14 +621,17 @@ defineExpose({
               <p class="mt-1">{{ getImportedStats(block.content) }}</p>
             </div>
             <div class="absolute right-3 top-3 flex flex-wrap gap-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-              <button type="button" class="tool-button px-2 py-1 text-xs" @click="toggleImportedCollapse(index)">
-                {{ block.meta?.collapsed ? '展开' : '折叠' }}
+              <button type="button" class="tool-button inline-flex items-center gap-1.5 px-2 py-1 text-xs" @click="toggleImportedCollapse(index)">
+                <ChevronDown class="h-3.5 w-3.5" :class="block.meta?.collapsed ? 'rotate-180' : ''" />
+                <span>{{ block.meta?.collapsed ? '展开' : '折叠' }}</span>
               </button>
-              <button type="button" class="tool-button px-2 py-1 text-xs" @click="convertImportedToText(index)">
-                转普通文本
+              <button type="button" class="tool-button inline-flex items-center gap-1.5 px-2 py-1 text-xs" @click="convertImportedToText(index)">
+                <FileText class="h-3.5 w-3.5" />
+                <span>转普通文本</span>
               </button>
-              <button type="button" class="tool-button px-2 py-1 text-xs text-red-700 dark:text-red-300" @click="removeBlock(index)">
-                删除
+              <button type="button" class="tool-button inline-flex items-center gap-1.5 px-2 py-1 text-xs text-red-700 dark:text-red-300" @click="removeBlock(index)">
+                <Trash2 class="h-3.5 w-3.5" />
+                <span>删除</span>
               </button>
             </div>
           </div>
@@ -635,12 +659,17 @@ defineExpose({
         <figure v-else class="group relative">
           <button
             type="button"
-            class="tool-button absolute right-3 top-3 z-10 px-2 py-1 text-xs text-red-700 opacity-0 transition group-hover:opacity-100 focus:opacity-100 dark:text-red-300"
+            class="tool-button absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 text-xs text-red-700 opacity-0 transition group-hover:opacity-100 focus:opacity-100 dark:text-red-300"
             @click="removeBlock(index)"
           >
-            删除
+            <Trash2 class="h-3.5 w-3.5" />
+            <span>删除</span>
           </button>
           <div class="overflow-hidden rounded-sm border border-stone-300 bg-stone-100 dark:border-stone-700 dark:bg-stone-950" @click="focusAfterImage(index)">
+            <div class="flex items-center gap-2 border-b border-stone-200 px-4 py-3 text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">
+              <ImageIcon class="h-4 w-4" />
+              <span>已插入图片</span>
+            </div>
             <img :src="block.content" alt="已插入图片" class="max-h-[540px] w-full object-contain" />
           </div>
         </figure>

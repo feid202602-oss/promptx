@@ -1,5 +1,15 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  CircleAlert,
+  Copy,
+  Eye,
+  LoaderCircle,
+  Save,
+  SquarePen,
+  Trash2,
+  WandSparkles,
+} from 'lucide-vue-next'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { deriveTitleFromBlocks } from '@tmpprompt/shared'
 import BlockEditor from '../components/BlockEditor.vue'
@@ -32,6 +42,7 @@ const lastSavedSnapshot = ref('')
 const editorRef = ref(null)
 const { toastMessage, flashToast, clearToast } = useToast()
 let autoSaveTimer = null
+let loadRequestId = 0
 
 const apiBase = getApiBase()
 const publicUrl = computed(() => `${window.location.origin}/p/${slug.value}`)
@@ -89,6 +100,7 @@ function scheduleAutoSave() {
 }
 
 async function loadDocument() {
+  const requestId = ++loadRequestId
   loading.value = true
   error.value = ''
   clearToast()
@@ -96,6 +108,9 @@ async function loadDocument() {
 
   try {
     const document = await getDocument(slug.value, editToken.value)
+    if (requestId !== loadRequestId) {
+      return
+    }
     draft.value = {
       title: document.title,
       blocks: document.blocks.map((block) => ({
@@ -109,9 +124,14 @@ async function loadDocument() {
       error.value = '当前浏览器里没有这个文档的编辑凭证，只能查看，不能保存。'
     }
   } catch (err) {
+    if (requestId !== loadRequestId) {
+      return
+    }
     error.value = err.message
   } finally {
-    loading.value = false
+    if (requestId === loadRequestId) {
+      loading.value = false
+    }
   }
 }
 
@@ -326,24 +346,49 @@ onBeforeUnmount(() => {
       <section class="panel flex flex-col gap-4 p-4">
         <div class="flex flex-col gap-3">
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <input v-model="draft.title" class="min-w-0 flex-1 border-0 bg-transparent p-0 text-2xl font-semibold text-stone-900 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-600" :placeholder="displayTitle" />
+            <div class="flex min-w-0 flex-1 items-center gap-3">
+              <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-dashed border-stone-300 bg-stone-50 text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200">
+                <SquarePen class="h-4 w-4" />
+              </span>
+              <input v-model="draft.title" class="min-w-0 flex-1 border-0 bg-transparent p-0 text-2xl font-semibold text-stone-900 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-600" :placeholder="displayTitle" />
+            </div>
             <div class="flex flex-wrap gap-2">
-              <button type="button" class="tool-button tool-button-primary px-3 py-2 text-xs" :disabled="saving || !editToken" @click="saveDocument()">
-                {{ saving ? '保存中...' : '保存' }}
+              <button type="button" class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs" :disabled="saving || !editToken" @click="saveDocument()">
+                <Save class="h-4 w-4" />
+                <span>{{ saving ? '保存中...' : '保存' }}</span>
               </button>
-              <RouterLink :to="`/p/${slug}`" class="tool-button px-3 py-2 text-xs">查看</RouterLink>
-              <button type="button" class="tool-button px-3 py-2 text-xs" @click="copyCodexPrompt">复制给 Codex</button>
+              <RouterLink :to="`/p/${slug}`" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs">
+                <Eye class="h-4 w-4" />
+                <span>查看</span>
+              </RouterLink>
+              <button type="button" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs" @click="copyCodexPrompt">
+                <Copy class="h-4 w-4" />
+                <span>复制给 Codex</span>
+              </button>
             </div>
           </div>
 
           <div class="flex flex-wrap items-center gap-3 text-sm text-stone-500 dark:text-stone-400">
-            <span>{{ syncMessage }}</span>
-            <span v-if="error" class="text-red-700 dark:text-red-300">{{ error }}</span>
+            <span class="inline-flex items-center gap-2">
+              <LoaderCircle v-if="saving || uploading" class="h-4 w-4 animate-spin" />
+              <WandSparkles v-else class="h-4 w-4" />
+              <span>{{ syncMessage }}</span>
+            </span>
+            <span v-if="error" class="inline-flex items-center gap-2 text-red-700 dark:text-red-300">
+              <CircleAlert class="h-4 w-4" />
+              <span>{{ error }}</span>
+            </span>
           </div>
 
           <div class="flex flex-wrap items-center gap-3 text-xs text-stone-500 dark:text-stone-400">
-            <button type="button" class="text-stone-500 underline decoration-stone-300 underline-offset-4 hover:text-stone-900 dark:text-stone-400 dark:decoration-stone-700 dark:hover:text-stone-100" @click="clearAllContent">清空正文</button>
-            <button type="button" class="text-red-700 underline decoration-stone-300 underline-offset-4 hover:text-red-900 disabled:text-stone-400 dark:text-red-300 dark:decoration-stone-700 dark:hover:text-red-200" :disabled="!editToken" @click="removeDocument">删除文档</button>
+            <button type="button" class="inline-flex items-center gap-2 text-stone-500 underline decoration-stone-300 underline-offset-4 hover:text-stone-900 dark:text-stone-400 dark:decoration-stone-700 dark:hover:text-stone-100" @click="clearAllContent">
+              <WandSparkles class="h-4 w-4" />
+              <span>清空正文</span>
+            </button>
+            <button type="button" class="inline-flex items-center gap-2 text-red-700 underline decoration-stone-300 underline-offset-4 hover:text-red-900 disabled:text-stone-400 dark:text-red-300 dark:decoration-stone-700 dark:hover:text-red-200" :disabled="!editToken" @click="removeDocument">
+              <Trash2 class="h-4 w-4" />
+              <span>删除文档</span>
+            </button>
           </div>
         </div>
       </section>
