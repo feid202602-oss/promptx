@@ -10,9 +10,86 @@ const STATE_DB_PATH = path.join(CODEX_HOME, 'state_5.sqlite')
 const TMP_DIR = path.join(CODEX_HOME, 'tmp')
 const MAX_SESSION_COUNT = 30
 const THREAD_MATCH_WINDOW_SECONDS = 5 * 60
+const RESOLVED_CODEX_BIN = resolveCodexBinary()
 
 function ensureCodexHome() {
   fs.mkdirSync(TMP_DIR, { recursive: true })
+}
+
+function resolveCodexBinary() {
+  if (process.platform !== 'win32') {
+    return CODEX_BIN
+  }
+
+  if (path.extname(CODEX_BIN)) {
+    return CODEX_BIN
+  }
+
+  if (fs.existsSync(`${CODEX_BIN}.cmd`)) {
+    return `${CODEX_BIN}.cmd`
+  }
+
+  if (fs.existsSync(`${CODEX_BIN}.bat`)) {
+    return `${CODEX_BIN}.bat`
+  }
+
+  if (fs.existsSync(CODEX_BIN)) {
+    return CODEX_BIN
+  }
+
+  try {
+    const output = execFileSync('where.exe', [CODEX_BIN], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+
+    if (!output) {
+      return CODEX_BIN
+    }
+
+    const candidates = output
+      .split(/\r?\n/g)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    return candidates.find((item) => /\.(cmd|bat)$/i.test(item))
+      || candidates.find((item) => /\.(exe|com)$/i.test(item))
+      || candidates[0]
+      || CODEX_BIN
+  } catch {
+    return CODEX_BIN
+  }
+}
+
+function createCodexSpawn(commandArgs = [], session = {}) {
+  const options = {
+    env: process.env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    cwd: session.cwd || process.cwd(),
+  }
+
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(RESOLVED_CODEX_BIN)) {
+    return spawn(
+      process.env.ComSpec || 'cmd.exe',
+      ['/d', '/s', '/c', RESOLVED_CODEX_BIN, ...commandArgs],
+      options
+    )
+  }
+
+  return spawn(RESOLVED_CODEX_BIN, commandArgs, options)
+}
+
+function normalizeSpawnError(error) {
+  if (error?.code === 'ENOENT') {
+    const attempted = RESOLVED_CODEX_BIN === CODEX_BIN
+      ? CODEX_BIN
+      : `${CODEX_BIN} -> ${RESOLVED_CODEX_BIN}`
+    return new Error(
+      `找不到 Codex CLI（尝试执行：${attempted}）。请先确认终端里可以运行 \`codex --version\`，或设置环境变量 \`CODEX_BIN\` 指向可执行文件。Windows 常见路径是 \`%APPDATA%\\npm\\codex.cmd\`。`
+    )
+  }
+
+  return error
 }
 
 function trimOutput(value = '', maxLength = 12000) {
@@ -271,18 +348,13 @@ export async function sendPromptToCodexSession(sessionInput, prompt) {
 
   try {
     const result = await new Promise((resolve, reject) => {
-      const child = spawn(
-        CODEX_BIN,
+      const child = createCodexSpawn(
         [
           ...createResumeArgs(session),
           '--output-last-message',
           outputFile,
         ],
-        {
-          env: process.env,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          cwd: session.cwd || process.cwd(),
-        }
+        session
       )
 
       let stdout = ''
@@ -297,7 +369,7 @@ export async function sendPromptToCodexSession(sessionInput, prompt) {
       })
 
       child.on('error', (error) => {
-        reject(error)
+        reject(normalizeSpawnError(error))
       })
 
       child.on('close', (code) => {
@@ -347,18 +419,13 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
   const outputFile = path.join(TMP_DIR, `promptx-codex-${Date.now()}-${process.pid}.txt`)
   const onEvent = typeof callbacks.onEvent === 'function' ? callbacks.onEvent : () => {}
 
-  const child = spawn(
-    CODEX_BIN,
+  const child = createCodexSpawn(
     [
       ...createResumeArgs(session),
       '--output-last-message',
       outputFile,
     ],
-    {
-      env: process.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: session.cwd || process.cwd(),
-    }
+    session
   )
 
   let stdoutBuffer = ''
@@ -425,7 +492,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
 
   const result = new Promise((resolve, reject) => {
     child.on('error', (error) => {
-      reject(error)
+      reject(normalizeSpawnError(error))
     })
 
     child.on('close', (code) => {

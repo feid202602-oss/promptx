@@ -34,8 +34,8 @@ async function importFreshCodexModule() {
 }
 
 function createFakeCodexBinary(tempDir) {
-  const binPath = path.join(tempDir, 'fake-codex')
-const script = `#!/usr/bin/env node
+  const scriptPath = path.join(tempDir, process.platform === 'win32' ? 'fake-codex.js' : 'fake-codex')
+  const script = `#!/usr/bin/env node
 const fs = require('node:fs')
 
 const args = process.argv.slice(2)
@@ -76,8 +76,45 @@ process.stdin.on('end', () => {
 })
 `
 
-  fs.writeFileSync(binPath, script, { mode: 0o755 })
-  return binPath
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 })
+
+  if (process.platform !== 'win32') {
+    return scriptPath
+  }
+
+  const cmdPath = path.join(tempDir, 'fake-codex.cmd')
+  fs.writeFileSync(cmdPath, '@echo off\r\nnode "%~dp0fake-codex.js" %*\r\n')
+  return cmdPath
+}
+
+function createWindowsCodexCommand(tempDir) {
+  const scriptPath = path.join(tempDir, 'fake-codex.js')
+  const cmdPath = path.join(tempDir, 'codex.cmd')
+  const script = `const fs = require('node:fs')
+
+const args = process.argv.slice(2)
+const outputIndex = args.indexOf('--output-last-message')
+const outputFile = outputIndex >= 0 ? args[outputIndex + 1] : ''
+const resumeIndex = args.indexOf('resume')
+const sessionId = resumeIndex >= 0 ? args[resumeIndex + 1] || '' : ''
+
+let prompt = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  prompt += chunk
+})
+process.stdin.on('end', () => {
+  if (outputFile) {
+    fs.writeFileSync(outputFile, \`session:\${sessionId}\\nprompt:\${prompt.trim()}\\n\`)
+  }
+
+  process.stdout.write(JSON.stringify({ ok: true, sessionId }) + '\\n')
+})
+`
+
+  fs.writeFileSync(scriptPath, script)
+  fs.writeFileSync(cmdPath, '@echo off\r\nnode "%~dp0fake-codex.js" %*\r\n')
+  return cmdPath
 }
 
 test('listCodexSessions 按更新时间倒序返回并去重', async () => {
@@ -235,6 +272,33 @@ test('streamPromptToCodexSession 能处理没有换行结尾的最后事件', as
         'stream tail message'
       )
       assert.equal(events.at(-1)?.type, 'completed')
+    }
+  )
+})
+
+test('Windows 下默认 codex 命令可解析到 codex.cmd', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('仅在 Windows 上验证 codex.cmd 解析')
+    return
+  }
+
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-win-'))
+  createWindowsCodexCommand(tempHome)
+
+  await withEnv(
+    {
+      CODEX_HOME: tempHome,
+      CODEX_BIN: undefined,
+      PATH: `${tempHome};${process.env.PATH || ''}`,
+    },
+    async () => {
+      const { sendPromptToCodexSession } = await importFreshCodexModule()
+      const result = await sendPromptToCodexSession('session-win', 'hello from windows')
+
+      assert.equal(result.sessionId, 'session-win')
+      assert.match(result.message, /session:session-win/)
+      assert.match(result.message, /prompt:hello from windows/)
+      assert.match(result.rawStdout, /"ok":true/)
     }
   )
 })
