@@ -1,14 +1,14 @@
-# TmpPrompt ZenTao Extension
+# PromptX ZenTao Extension
 
-一个最小可用的 Chrome Manifest V3 插件：在禅道 Bug 详情页右下角插入“AI提示词”按钮，一键把当前页面的关键信息整理成 `tmpprompt` 文档。
+一个最小可用的 Chrome Manifest V3 插件：在禅道 Bug 详情页右下角插入“AI提示词”按钮，一键把当前页面的关键信息整理成 `promptx` 文档。
 
 ## 当前能力
 
 - 识别常见的禅道 Bug 详情页 URL
 - 支持在 iframe 内识别禅道 Bug 详情正文
 - 提取正文文本并转成普通文本块
-- 抓取正文图片并转存到 `tmpprompt` 自己的上传服务
-- 调用 `tmpprompt` 接口自动创建文档
+- 抓取正文图片并转存到 `promptx` 自己的上传服务
+- 调用 `promptx` 接口自动创建文档
 - 生成后自动复制 Raw 链接给 Codex
 
 ## 使用方式

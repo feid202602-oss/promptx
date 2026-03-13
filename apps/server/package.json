@@ -1,5 +1,5 @@
 {
-  "name": "@tmpprompt/server",
+  "name": "@promptx/server",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "@fastify/multipart": "^9.2.1",
     "@fastify/static": "^8.3.0",
     "@napi-rs/canvas": "^0.1.96",
-    "@tmpprompt/shared": "workspace:*",
+    "@promptx/shared": "workspace:*",
     "fastify": "^5.6.1",
     "jimp": "^1.6.0",
     "nanoid": "^5.1.6",

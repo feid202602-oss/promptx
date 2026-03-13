@@ -9,7 +9,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-vue-next'
-import { BLOCK_TYPES } from '@tmpprompt/shared'
+import { BLOCK_TYPES } from '@promptx/shared'
 
 const props = defineProps({
   modelValue: {

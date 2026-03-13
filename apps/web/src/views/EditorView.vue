@@ -12,7 +12,7 @@ import {
   WandSparkles,
 } from 'lucide-vue-next'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
-import { deriveTitleFromBlocks } from '@tmpprompt/shared'
+import { deriveTitleFromBlocks } from '@promptx/shared'
 import BlockEditor from '../components/BlockEditor.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import TopToast from '../components/TopToast.vue'

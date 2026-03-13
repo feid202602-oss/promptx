@@ -1,9 +1,9 @@
 {
-  "name": "tmpprompt",
+  "name": "promptx",
   "private": true,
   "packageManager": "pnpm@10.15.1",
   "scripts": {
-    "dev": "pnpm --parallel --filter @tmpprompt/server --filter @tmpprompt/web dev",
+    "dev": "pnpm --parallel --filter @promptx/server --filter @promptx/web dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint"
   }

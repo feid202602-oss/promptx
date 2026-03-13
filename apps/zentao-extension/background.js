@@ -8,7 +8,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   createTmppromptDocument(message.payload)
     .then((result) => sendResponse({ ok: true, ...result }))
-    .catch((error) => sendResponse({ ok: false, error: error.message || '生成 TmpPrompt 链接失败。' }))
+    .catch((error) => sendResponse({ ok: false, error: error.message || '生成 PromptX 链接失败。' }))
 
   return true
 })

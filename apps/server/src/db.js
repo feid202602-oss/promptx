@@ -6,7 +6,7 @@ import initSqlJs from 'sql.js'
 const require = createRequire(import.meta.url)
 const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
 const dataDir = path.resolve(process.cwd(), 'data')
-const dbPath = path.join(dataDir, 'tmpprompt.sqlite')
+const dbPath = path.join(dataDir, 'promptx.sqlite')
 
 fs.mkdirSync(dataDir, { recursive: true })
 

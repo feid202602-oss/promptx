@@ -22,7 +22,7 @@ importers:
       '@napi-rs/canvas':
         specifier: ^0.1.96
         version: 0.1.96
-      '@tmpprompt/shared':
+      '@promptx/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       fastify:
@@ -43,7 +43,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@tmpprompt/shared':
+      '@promptx/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       lucide-vue-next:

@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 
-const STORAGE_KEY = 'tmpprompt:theme'
+const STORAGE_KEY = 'promptx:theme'
 const theme = ref(window.localStorage.getItem(STORAGE_KEY) || 'light')
 
 document.documentElement.classList.toggle('dark', theme.value === 'dark')

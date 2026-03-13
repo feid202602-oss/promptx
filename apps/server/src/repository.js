@@ -10,7 +10,7 @@ import {
   resolveExpiresAt,
   slugifyTitle,
   summarizeDocument,
-} from '@tmpprompt/shared'
+} from '@promptx/shared'
 import { all, get, run, transaction } from './db.js'
 
 const slugTail = customAlphabet('abcdefghijkmnpqrstuvwxyz23456789', 6)

@@ -1,5 +1,5 @@
-const ROOT_ID = 'tmpprompt-zentao-bridge-root'
-const DEFAULT_MESSAGE = '把当前禅道 Bug 一键整理成 TmpPrompt 文档。'
+const ROOT_ID = 'promptx-zentao-bridge-root'
+const DEFAULT_MESSAGE = '把当前禅道 Bug 一键整理成 PromptX 文档。'
 const FIELD_ALIASES = {
   status: ['状态'],
   priority: ['优先级'],
@@ -916,7 +916,7 @@ function sendRuntimeMessage(message) {
         return
       }
       if (!response?.ok) {
-        reject(new Error(response?.error || '生成 TmpPrompt 链接失败。'))
+        reject(new Error(response?.error || '生成 PromptX 链接失败。'))
         return
       }
       resolve(response)
@@ -1030,7 +1030,7 @@ function createRoot() {
     <div class="wrap">
       <div class="panel hidden">
         <div class="panel-head">
-          <span>TmpPrompt</span>
+          <span>PromptX</span>
           <button class="icon-button close-button" type="button" aria-label="关闭">×</button>
         </div>
         <div class="panel-body">
@@ -1098,7 +1098,7 @@ function render(refs) {
 async function handleCreate(refs) {
   refs.state.busy = true
   refs.state.status = 'idle'
-  refs.state.message = '正在提取禅道内容并生成 TmpPrompt 文档...'
+  refs.state.message = '正在提取禅道内容并生成 PromptX 文档...'
   refs.state.links = null
   refs.state.promptText = ''
   render(refs)
@@ -1118,11 +1118,11 @@ async function handleCreate(refs) {
     refs.state.promptText = result.promptText
     refs.state.status = 'success'
     refs.state.message = copied
-      ? '已生成 TmpPrompt 文档，并复制了 Raw 链接。'
-      : '已生成 TmpPrompt 文档，请手动复制 Raw 链接。'
+      ? '已生成 PromptX 文档，并复制了 Raw 链接。'
+      : '已生成 PromptX 文档，请手动复制 Raw 链接。'
   } catch (error) {
     refs.state.status = 'error'
-    refs.state.message = error.message || '生成 TmpPrompt 文档失败。'
+    refs.state.message = error.message || '生成 PromptX 文档失败。'
     refs.state.links = null
   } finally {
     refs.state.busy = false

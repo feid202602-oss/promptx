@@ -11,7 +11,7 @@ import ThemeToggle from './components/ThemeToggle.vue'
           <span class="inline-flex h-8 w-8 items-center justify-center rounded-sm border border-dashed border-stone-300 bg-stone-50 text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200">
             <Sparkles class="h-4 w-4" />
           </span>
-          <span>TmpPrompt</span>
+          <span>PromptX</span>
         </RouterLink>
         <ThemeToggle />
       </div>

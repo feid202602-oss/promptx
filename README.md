@@ -1,4 +1,4 @@
-# TmpPrompt
+# PromptX
 
 一个轻量匿名工具：把需求描述、上下文文本和截图整理成临时页面，再把公开链接或 Raw 文本交给 Codex 等模型继续使用。
 
@@ -9,8 +9,8 @@
 ### 1. 下载代码
 
 ```bash
-git clone https://github.com/bravf/tmpprompt.git
-cd tmpprompt
+git clone https://github.com/bravf/promptx.git
+cd promptx
 ```
 
 ### 2. 安装依赖
@@ -72,7 +72,7 @@ pnpm dev
   - 支持文档过期清理与公开列表读取
 
 - 禅道插件
-  - 在禅道 Bug 详情页一键生成 TmpPrompt 文档
+  - 在禅道 Bug 详情页一键生成 PromptX 文档
   - 自动提取正文文本、图片和部分上下文信息
   - 自动复制适合发给 Codex 的提示词
   - 避免把禅道原始链接写进文档正文，减少对模型的误导
@@ -89,7 +89,7 @@ pnpm dev
 
 - `apps/zentao-extension`
   - 基于 Chrome Manifest V3
-  - 负责在禅道 Bug 页面提取内容并创建 TmpPrompt 文档
+  - 负责在禅道 Bug 页面提取内容并创建 PromptX 文档
 
 - `packages/shared`
   - 存放共享常量、块类型、导出逻辑和标题提取逻辑
@@ -115,7 +115,7 @@ packages/
 - `apps/web/src/views`: 页面级视图，如首页、编辑页、公开页
 - `apps/web/src/components`: 编辑器、通知、主题切换等组件
 - `apps/web/src/lib`: API 请求等工具函数
-- `apps/zentao-extension`: 禅道 Bug 转 TmpPrompt 的浏览器插件，当前默认连接本地 `5173/3000`
+- `apps/zentao-extension`: 禅道 Bug 转 PromptX 的浏览器插件，当前默认连接本地 `5173/3000`
 - `apps/server/src/index.js`: Fastify 入口与 HTTP 接口
 - `apps/server/src/repository.js`: 文档和块数据读写
 - `apps/server/src/db.js`: 本地 SQLite 初始化与持久化封装
@@ -164,7 +164,7 @@ pnpm lint
 
 服务端运行时数据默认放在 `apps/server/` 下：
 
-- `data/tmpprompt.sqlite`: SQLite 数据文件
+- `data/promptx.sqlite`: SQLite 数据文件
 - `uploads/`: 上传后的图片文件
 - `tmp/`: 临时处理中间文件
 
@@ -190,12 +190,12 @@ pnpm lint
 
 ## 禅道插件使用
 
-`apps/zentao-extension` 是当前仓库内置的禅道浏览器插件，用来把禅道 Bug 详情页快速整理成 TmpPrompt 文档，并自动复制适合发给 Codex 的提示词。
+`apps/zentao-extension` 是当前仓库内置的禅道浏览器插件，用来把禅道 Bug 详情页快速整理成 PromptX 文档，并自动复制适合发给 Codex 的提示词。
 
 ### 适用场景
 
 - 在禅道 Bug 详情页快速提取正文内容
-- 自动抓取正文中的图片并转存到 TmpPrompt
+- 自动抓取正文中的图片并转存到 PromptX
 - 直接生成可编辑、可公开访问、可导出 Raw 的临时文档
 - 复制一段可直接发给 Codex 的提示词
 
@@ -224,7 +224,7 @@ pnpm dev
 1. 打开一个禅道 Bug 详情页
 2. 点击页面右下角的 `AI提示词` 按钮
 3. 插件会自动提取正文、图片和部分上下文信息
-4. 插件会调用 TmpPrompt 接口创建文档
+4. 插件会调用 PromptX 接口创建文档
 5. 生成完成后，可直接：
    - 点击“复制给 Codex”
    - 点击“编辑”继续整理内容
