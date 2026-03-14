@@ -1,17 +1,24 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   ChevronDown,
+  FileText,
+  Image as ImageIcon,
   LoaderCircle,
   ScanText,
   Trash2,
 } from 'lucide-vue-next'
 import { BLOCK_TYPES } from '@promptx/shared'
+import PathMentionPicker from './PathMentionPicker.vue'
 
 const props = defineProps({
   modelValue: {
     type: Array,
     required: true,
+  },
+  codexSessionId: {
+    type: String,
+    default: '',
   },
   uploading: {
     type: Boolean,
@@ -27,7 +34,103 @@ const textareas = ref([])
 const surfaceRef = ref(null)
 const contentRef = ref(null)
 const fileInputRef = ref(null)
+const mentionPickerRef = ref(null)
 const selectionMap = ref({})
+const mentionState = ref(createMentionState())
+const mentionAnchorRect = ref(null)
+
+function createMentionState() {
+  return {
+    open: false,
+    blockIndex: -1,
+    start: 0,
+    end: 0,
+    query: '',
+  }
+}
+
+function getMentionAnchorRect(index, position) {
+  const textarea = textareas.value[index]
+  if (!textarea || typeof document === 'undefined') {
+    return null
+  }
+
+  const computedStyle = window.getComputedStyle(textarea)
+  const mirror = document.createElement('div')
+  const marker = document.createElement('span')
+  const properties = [
+    'boxSizing',
+    'width',
+    'height',
+    'overflowX',
+    'overflowY',
+    'borderTopWidth',
+    'borderRightWidth',
+    'borderBottomWidth',
+    'borderLeftWidth',
+    'paddingTop',
+    'paddingRight',
+    'paddingBottom',
+    'paddingLeft',
+    'fontStyle',
+    'fontVariant',
+    'fontWeight',
+    'fontStretch',
+    'fontSize',
+    'fontSizeAdjust',
+    'lineHeight',
+    'fontFamily',
+    'textAlign',
+    'textTransform',
+    'textIndent',
+    'textDecoration',
+    'letterSpacing',
+    'wordSpacing',
+    'tabSize',
+  ]
+
+  mirror.style.position = 'fixed'
+  mirror.style.left = '-9999px'
+  mirror.style.top = '0'
+  mirror.style.visibility = 'hidden'
+  mirror.style.whiteSpace = 'pre-wrap'
+  mirror.style.wordWrap = 'break-word'
+
+  properties.forEach((property) => {
+    mirror.style[property] = computedStyle[property]
+  })
+
+  mirror.textContent = textarea.value.slice(0, position)
+  marker.textContent = textarea.value.slice(position, position + 1) || ' '
+  mirror.appendChild(marker)
+  document.body.appendChild(mirror)
+
+  const textareaRect = textarea.getBoundingClientRect()
+  const lineHeight = Number.parseFloat(computedStyle.lineHeight) || Number.parseFloat(computedStyle.fontSize) * 1.4 || 20
+  const left = textareaRect.left + marker.offsetLeft - textarea.scrollLeft
+  const top = textareaRect.top + marker.offsetTop - textarea.scrollTop
+
+  document.body.removeChild(mirror)
+
+  return {
+    left,
+    top,
+    right: left,
+    bottom: top + lineHeight,
+    width: 0,
+    height: lineHeight,
+  }
+}
+
+function updateMentionAnchor() {
+  const state = mentionState.value
+  if (!state.open || state.blockIndex < 0) {
+    mentionAnchorRect.value = null
+    return
+  }
+
+  mentionAnchorRect.value = getMentionAnchorRect(state.blockIndex, state.start)
+}
 
 function isCursorTextBlock(block) {
   return block?.type === BLOCK_TYPES.TEXT
@@ -106,24 +209,34 @@ function setTextRef(element, index) {
   textareas.value[index] = null
 }
 
-function resizeTextarea(element) {
+function resizeTextarea(element, options = {}) {
   if (!element) {
     return
   }
 
+  const {
+    allowShrink = true,
+    preserveViewport = true,
+    preserveSelection = true,
+  } = options
   const scrollX = window.scrollX
   const scrollY = window.scrollY
   const selectionStart = element.selectionStart
   const selectionEnd = element.selectionEnd
   const isActive = document.activeElement === element
+  const currentHeight = Number.parseFloat(element.style.height) || element.offsetHeight || 40
 
-  element.style.height = 'auto'
-  element.style.height = `${Math.max(element.scrollHeight, 40)}px`
+  if (allowShrink) {
+    element.style.height = 'auto'
+    element.style.height = `${Math.max(element.scrollHeight, 40)}px`
+  } else {
+    element.style.height = `${Math.max(currentHeight, element.scrollHeight, 40)}px`
+  }
 
-  if (isActive && selectionStart !== null && selectionEnd !== null) {
+  if (preserveSelection && isActive && selectionStart !== null && selectionEnd !== null) {
     element.setSelectionRange(selectionStart, selectionEnd)
   }
-  if (window.scrollX !== scrollX || window.scrollY !== scrollY) {
+  if (preserveViewport && (window.scrollX !== scrollX || window.scrollY !== scrollY)) {
     window.scrollTo(scrollX, scrollY)
   }
 }
@@ -237,6 +350,96 @@ function recordSelection(index, event) {
     start: event.target.selectionStart ?? 0,
     end: event.target.selectionEnd ?? 0,
   }
+  syncMentionState(index, event.target)
+}
+
+function closeMentionPicker() {
+  mentionState.value = createMentionState()
+  mentionAnchorRect.value = null
+}
+
+function syncMentionState(index, target) {
+  const element = target || textareas.value[index]
+  const currentBlock = blocks.value[index]
+
+  if (!element || !currentBlock || !isTextLikeBlock(currentBlock)) {
+    if (mentionState.value.blockIndex === index) {
+      closeMentionPicker()
+    }
+    return
+  }
+
+  const selectionStart = element.selectionStart ?? 0
+  const selectionEnd = element.selectionEnd ?? 0
+  if (selectionStart !== selectionEnd) {
+    if (mentionState.value.blockIndex === index) {
+      closeMentionPicker()
+    }
+    return
+  }
+
+  const content = String(currentBlock.content || '')
+  const beforeCaret = content.slice(0, selectionEnd)
+  const match = beforeCaret.match(/(^|[\s([{@])@([^\s@]*)$/)
+
+  if (!match) {
+    if (mentionState.value.blockIndex === index) {
+      closeMentionPicker()
+    }
+    return
+  }
+
+  const nextStart = selectionEnd - match[2].length - 1
+  const anchorChanged = !mentionState.value.open
+    || mentionState.value.blockIndex !== index
+    || mentionState.value.start !== nextStart
+  const nextAnchorRect = getMentionAnchorRect(index, nextStart)
+
+  mentionState.value = {
+    open: true,
+    blockIndex: index,
+    start: nextStart,
+    end: selectionEnd,
+    query: match[2],
+  }
+  if (anchorChanged) {
+    mentionAnchorRect.value = nextAnchorRect
+  }
+}
+
+function applyMentionSelection(item) {
+  const pathValue = String(item?.path || '').trim()
+  const state = mentionState.value
+
+  if (!pathValue || state.blockIndex < 0) {
+    closeMentionPicker()
+    return false
+  }
+
+  const currentBlock = blocks.value[state.blockIndex]
+  if (!currentBlock || !isTextLikeBlock(currentBlock)) {
+    closeMentionPicker()
+    return false
+  }
+
+  const nextContent = `${currentBlock.content.slice(0, state.start)}@${pathValue} ${currentBlock.content.slice(state.end)}`
+  const nextCursor = state.start + pathValue.length + 2
+  const nextBlocks = [...blocks.value]
+
+  nextBlocks.splice(state.blockIndex, 1, {
+    ...currentBlock,
+    content: nextContent,
+  })
+
+  setBlocks(nextBlocks)
+  activeIndex.value = state.blockIndex
+  selectionMap.value[state.blockIndex] = {
+    start: nextCursor,
+    end: nextCursor,
+  }
+  closeMentionPicker()
+  nextTick(() => placeCursor(state.blockIndex, nextCursor))
+  return true
 }
 
 function splitTextBlockForInsertion(currentIndex, incomingBlocks, options = {}) {
@@ -496,6 +699,8 @@ function handleSurfaceClick(event) {
     return
   }
 
+  closeMentionPicker()
+
   const lastTextIndex = [...blocks.value]
     .map((block, index) => ({ block, index }))
     .filter((item) => item.block.type === BLOCK_TYPES.TEXT)
@@ -514,14 +719,25 @@ function handleTextFocus(index) {
     start: target?.selectionStart ?? 0,
     end: target?.selectionEnd ?? 0,
   }
+  syncMentionState(index, target)
 }
 
-function handleTextInput(event) {
-  resizeTextarea(event.target)
-  scrollContentToBottom()
+function handleTextInput(index, event) {
+  const mentionActive = mentionState.value.open && mentionState.value.blockIndex === index
+  resizeTextarea(event.target, mentionActive
+    ? {
+        allowShrink: false,
+        preserveViewport: false,
+        preserveSelection: false,
+      }
+    : undefined)
+  if (!(mentionState.value.open && mentionState.value.blockIndex === index)) {
+    scrollContentToBottom()
+  }
+  syncMentionState(index, event.target)
 }
 
-function handleTextKeydown(index, event) {
+async function handleTextKeydown(index, event) {
   const current = blocks.value[index]
   const target = event.target
 
@@ -533,6 +749,56 @@ function handleTextKeydown(index, event) {
 
   if (!isTextLikeBlock(current)) {
     return
+  }
+
+  if (mentionState.value.open && mentionState.value.blockIndex === index) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeMentionPicker()
+      return
+    }
+
+    if (event.key === 'ArrowDown') {
+      if (mentionPickerRef.value?.moveActive?.(1)) {
+        event.preventDefault()
+        return
+      }
+    }
+
+    if (event.key === 'ArrowUp') {
+      if (mentionPickerRef.value?.moveActive?.(-1)) {
+        event.preventDefault()
+        return
+      }
+    }
+
+    if (event.key === 'ArrowRight') {
+      if (await mentionPickerRef.value?.expandActiveDirectory?.()) {
+        event.preventDefault()
+        return
+      }
+    }
+
+    if (event.key === 'ArrowLeft') {
+      if (mentionPickerRef.value?.collapseActiveDirectory?.()) {
+        event.preventDefault()
+        return
+      }
+    }
+
+    if (!event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'Tab') {
+      if (mentionPickerRef.value?.switchTab?.(event.shiftKey ? -1 : 1)) {
+        event.preventDefault()
+        return
+      }
+    }
+
+    if (!event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'Enter') {
+      if (mentionPickerRef.value?.confirmActive?.()) {
+        event.preventDefault()
+        return
+      }
+    }
   }
 
   const selectionStart = target.selectionStart ?? 0
@@ -598,6 +864,52 @@ watch(
   { immediate: true, deep: true }
 )
 
+watch(
+  () => props.codexSessionId,
+  () => {
+    closeMentionPicker()
+  }
+)
+
+watch(
+  () => mentionState.value.open,
+  (open) => {
+    if (open) {
+      return
+    }
+
+    nextTick(() => {
+      textareas.value.forEach((element) => resizeTextarea(element))
+    })
+  }
+)
+
+watch(
+  blockLayoutSignature,
+  () => {
+    if (mentionState.value.open) {
+      nextTick(updateMentionAnchor)
+    }
+  }
+)
+
+function handleViewportChange() {
+  if (!mentionState.value.open) {
+    return
+  }
+  updateMentionAnchor()
+}
+
+onMounted(() => {
+  window.addEventListener('resize', handleViewportChange)
+  window.addEventListener('scroll', handleViewportChange)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleViewportChange)
+  window.removeEventListener('scroll', handleViewportChange)
+})
+
 defineExpose({
   clearDocument,
   insertBlocks,
@@ -612,7 +924,7 @@ defineExpose({
 <template>
   <section
     ref="surfaceRef"
-    class="panel flex h-full min-h-0 flex-col overflow-hidden"
+    class="panel relative flex h-full min-h-0 flex-col overflow-hidden"
     @click="handleSurfaceClick"
     @drop="handleSurfaceDrop"
     @dragover.prevent
@@ -655,7 +967,7 @@ defineExpose({
             class="w-full resize-none border-0 bg-transparent p-0 pr-12 text-[15px] leading-8 text-stone-900 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-600"
               :placeholder="index === 0 ? '从这里开始写需求...' : '继续输入...'"
             @focus="handleTextFocus(index)"
-            @input="updateText(index, $event.target.value); handleTextInput($event)"
+            @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
             @keydown="handleTextKeydown(index, $event)"
             @click="recordSelection(index, $event)"
             @keyup="recordSelection(index, $event)"
@@ -706,7 +1018,7 @@ defineExpose({
             class="w-full resize-none border-0 bg-transparent px-4 py-4 text-[15px] leading-8 text-stone-900 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-600"
             placeholder="导入内容为空"
             @focus="handleTextFocus(index)"
-            @input="updateText(index, $event.target.value); handleTextInput($event)"
+            @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
             @keydown="handleTextKeydown(index, $event)"
             @click="recordSelection(index, $event)"
             @keyup="recordSelection(index, $event)"
@@ -734,5 +1046,15 @@ defineExpose({
       </template>
       </div>
     </div>
+
+    <PathMentionPicker
+      ref="mentionPickerRef"
+      :open="mentionState.open && !!mentionAnchorRect"
+      :session-id="codexSessionId"
+      :query="mentionState.query"
+      :anchor-rect="mentionAnchorRect"
+      @close="closeMentionPicker"
+      @select="applyMentionSelection"
+    />
   </section>
 </template>

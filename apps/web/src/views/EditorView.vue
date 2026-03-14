@@ -49,6 +49,7 @@ const lastSavedSnapshot = ref('')
 const editorRef = ref(null)
 const codexPanelRef = ref(null)
 const codexSending = ref(false)
+const selectedCodexSession = ref(null)
 const { toastMessage, flashToast, clearToast } = useToast()
 let autoSaveTimer = null
 let loadRequestId = 0
@@ -58,6 +59,7 @@ let bypassLeaveConfirm = false
 const apiBase = getApiBase()
 const rawUrl = computed(() => `${apiBase}/p/${slug.value}/raw`)
 const codexSessionStorageKey = computed(() => `promptx:codex-session-id:${slug.value}`)
+const selectedCodexSessionId = computed(() => selectedCodexSession.value?.id || '')
 const displayTitle = computed(() => draft.value.title || deriveTitleFromBlocks(draft.value.blocks) || '未命名文档')
 const shouldPromptOnLeave = computed(() => {
   if (bypassLeaveConfirm || loading.value) {
@@ -545,6 +547,7 @@ onBeforeUnmount(() => {
             :build-prompt="prepareCodexPrompt"
             :storage-key="codexSessionStorageKey"
             @sending-change="codexSending = $event"
+            @selected-session-change="selectedCodexSession = $event"
           />
         </div>
 
@@ -552,6 +555,7 @@ onBeforeUnmount(() => {
           <BlockEditor
             ref="editorRef"
             v-model="draft.blocks"
+            :codex-session-id="selectedCodexSessionId"
             :uploading="uploading"
             @upload-files="handleUpload"
             @import-text-files="handleImportTextFiles"

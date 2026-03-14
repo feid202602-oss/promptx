@@ -34,6 +34,7 @@ import {
 } from './codexSessions.js'
 import { importPdfDocument } from './pdf.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
+import { listWorkspaceTree, searchWorkspaceEntries } from './workspaceFiles.js'
 
 const app = Fastify({ logger: true })
 const activeCodexSessionRuns = new Map()
@@ -378,6 +379,34 @@ app.get('/api/codex/sessions', async () => ({
 app.get('/api/codex/workspaces', async () => ({
   items: listWorkspaceSuggestions(),
 }))
+
+app.get('/api/codex/sessions/:sessionId/files/tree', async (request, reply) => {
+  const session = getPromptxCodexSessionById(request.params.sessionId)
+  if (!session) {
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
+  }
+
+  const payload = listWorkspaceTree(session.cwd, {
+    path: request.query?.path,
+    limit: request.query?.limit,
+  })
+
+  return payload
+})
+
+app.get('/api/codex/sessions/:sessionId/files/search', async (request, reply) => {
+  const session = getPromptxCodexSessionById(request.params.sessionId)
+  if (!session) {
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
+  }
+
+  const payload = searchWorkspaceEntries(session.cwd, {
+    query: request.query?.q,
+    limit: request.query?.limit,
+  })
+
+  return payload
+})
 
 app.post('/api/codex/sessions', async (request, reply) => {
   const session = createPromptxCodexSession(request.body || {})

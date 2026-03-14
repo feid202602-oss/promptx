@@ -141,6 +141,34 @@ export function deleteCodexSession(sessionId) {
   })
 }
 
+export function listCodexSessionFiles(sessionId, options = {}) {
+  const params = new URLSearchParams()
+  const targetPath = String(options.path || '').trim()
+
+  if (targetPath) {
+    params.set('path', targetPath)
+  }
+
+  const query = params.toString()
+  return request(`/api/codex/sessions/${encodeURIComponent(sessionId)}/files/tree${query ? `?${query}` : ''}`)
+}
+
+export function searchCodexSessionFiles(sessionId, query, options = {}) {
+  const params = new URLSearchParams()
+  const keyword = String(query || '').trim()
+  const limit = Number(options.limit || 60)
+
+  if (keyword) {
+    params.set('q', keyword)
+  }
+  if (Number.isFinite(limit) && limit > 0) {
+    params.set('limit', String(limit))
+  }
+
+  const search = params.toString()
+  return request(`/api/codex/sessions/${encodeURIComponent(sessionId)}/files/search${search ? `?${search}` : ''}`)
+}
+
 export function sendPromptToCodexSession(sessionId, payload) {
   return request(`/api/codex/sessions/${encodeURIComponent(sessionId)}/send`, {
     method: 'POST',

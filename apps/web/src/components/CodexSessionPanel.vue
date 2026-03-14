@@ -18,7 +18,7 @@ import {
   updateCodexSession,
 } from '../lib/api.js'
 
-const emit = defineEmits(['sending-change'])
+const emit = defineEmits(['selected-session-change', 'sending-change'])
 
 const props = defineProps({
   prompt: {
@@ -769,6 +769,14 @@ watch(
 )
 
 watch(selectedSessionId, persistSelectedSession)
+
+watch(
+  selectedSession,
+  (session) => {
+    emit('selected-session-change', session || null)
+  },
+  { immediate: true }
+)
 
 watch(
   () => props.storageKey,
