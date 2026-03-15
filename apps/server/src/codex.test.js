@@ -1,4 +1,4 @@
-import fs from 'node:fs'
+﻿import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -203,73 +203,6 @@ test('listKnownCodexWorkspaces dedupes cwd values', async () => {
   )
 })
 
-test('sendPromptToCodexSession creates a new thread on first send', async () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-send-'))
-  const fakeBin = createFakeCodexBinary(tempHome)
-
-  await withEnv(
-    {
-      CODEX_HOME: tempHome,
-      CODEX_BIN: fakeBin,
-    },
-    async () => {
-      const { sendPromptToCodexSession } = await importFreshCodexModule()
-      const result = await sendPromptToCodexSession(
-        { id: 'session-xyz', cwd: 'D:\\code\\promptx', codexThreadId: '' },
-        'hello from promptx'
-      )
-
-      assert.equal(result.sessionId, 'session-xyz')
-      assert.equal(result.threadId, 'thread-new-123')
-      assert.match(result.message, /thread:thread-new-123/)
-      assert.match(result.message, /cwd:D:\\code\\promptx/)
-    }
-  )
-})
-
-test('sendPromptToCodexSession resumes an existing thread when provided', async () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-resume-'))
-  const fakeBin = createFakeCodexBinary(tempHome)
-
-  await withEnv(
-    {
-      CODEX_HOME: tempHome,
-      CODEX_BIN: fakeBin,
-    },
-    async () => {
-      const { sendPromptToCodexSession } = await importFreshCodexModule()
-      const result = await sendPromptToCodexSession(
-        { id: 'session-xyz', cwd: 'D:\\code\\yuyang-web', codexThreadId: 'thread-old-456' },
-        'hello again'
-      )
-
-      assert.equal(result.threadId, 'thread-old-456')
-      assert.match(result.message, /thread:thread-old-456/)
-      assert.match(result.message, /cwd:D:\\code\\yuyang-web/)
-    }
-  )
-})
-
-test('sendPromptToCodexSession surfaces stderr failures', async () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-fail-'))
-  const fakeBin = createFakeCodexBinary(tempHome)
-
-  await withEnv(
-    {
-      CODEX_HOME: tempHome,
-      CODEX_BIN: fakeBin,
-    },
-    async () => {
-      const { sendPromptToCodexSession } = await importFreshCodexModule()
-
-      await assert.rejects(
-        () => sendPromptToCodexSession({ id: 'session-xyz', cwd: 'D:\\code\\promptx' }, 'fail-case'),
-        /mocked codex failure/
-      )
-    }
-  )
-})
-
 test('streamPromptToCodexSession handles a tail event without newline', async () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-stream-'))
   const fakeBin = createFakeCodexBinary(tempHome)
@@ -372,6 +305,27 @@ test('streamPromptToCodexSession emits starting status for new sessions and resu
   )
 })
 
+test('streamPromptToCodexSession surfaces stderr failures', async () => {
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-fail-'))
+  const fakeBin = createFakeCodexBinary(tempHome)
+
+  await withEnv(
+    {
+      CODEX_HOME: tempHome,
+      CODEX_BIN: fakeBin,
+    },
+    async () => {
+      const { streamPromptToCodexSession } = await importFreshCodexModule()
+      const stream = streamPromptToCodexSession(
+        { id: 'session-xyz', cwd: 'D:\\code\\promptx' },
+        'fail-case'
+      )
+
+      await assert.rejects(() => stream.result, /mocked codex failure/)
+    }
+  )
+})
+
 test('streamPromptToCodexSession repairs garbled command output', async () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-mojibake-'))
   const fakeBin = createFakeCodexBinary(tempHome)
@@ -382,7 +336,7 @@ test('streamPromptToCodexSession repairs garbled command output', async () => {
       CODEX_BIN: fakeBin,
     },
     async () => {
-      const { streamPromptToCodexSession, sendPromptToCodexSession } = await importFreshCodexModule()
+      const { streamPromptToCodexSession } = await importFreshCodexModule()
       const events = []
       const stream = streamPromptToCodexSession(
         { id: 'session-xyz', cwd: 'D:\\code\\promptx' },
@@ -395,13 +349,8 @@ test('streamPromptToCodexSession repairs garbled command output', async () => {
       )
 
       const streamResult = await stream.result
-      const sendResult = await sendPromptToCodexSession(
-        { id: 'session-xyz', cwd: 'D:\\code\\promptx' },
-        'mojibake-case'
-      )
 
       assert.equal(streamResult.message, '获取测试数据')
-      assert.equal(sendResult.message, '获取测试数据')
       assert.equal(
         events.find((event) => event.type === 'codex' && event.event.type === 'item.completed')?.event?.item?.aggregated_output,
         '获取测试数据'
@@ -426,11 +375,12 @@ test('Windows resolves codex.cmd when CODEX_BIN is omitted', async (t) => {
       PATH: `${tempHome};${process.env.PATH || ''}`,
     },
     async () => {
-      const { sendPromptToCodexSession } = await importFreshCodexModule()
-      const result = await sendPromptToCodexSession(
+      const { streamPromptToCodexSession } = await importFreshCodexModule()
+      const stream = streamPromptToCodexSession(
         { id: 'session-win', cwd: 'D:\\code\\promptx' },
         'hello from windows'
       )
+      const result = await stream.result
 
       assert.equal(result.sessionId, 'session-win')
       assert.equal(result.threadId, 'thread-win')

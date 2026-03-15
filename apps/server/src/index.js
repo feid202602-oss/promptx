@@ -23,8 +23,7 @@ import {
   updateTask,
 } from './repository.js'
 import {
-  listKnownCodexWorkspaces,
-  sendPromptToCodexSession,
+  listKnownCodexWorkspaces,
   streamPromptToCodexSession,
 } from './codex.js'
 import {
@@ -855,33 +854,6 @@ app.delete('/api/codex/sessions/:sessionId', async (request, reply) => {
   })
   broadcastServerEvent('tasks.changed')
   return reply.code(204).send()
-})
-
-app.post('/api/codex/sessions/:sessionId/send', async (request, reply) => {
-  const session = getPromptxCodexSessionById(request.params.sessionId)
-  if (!session) {
-    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
-  }
-
-  const prompt = String(request.body?.prompt || '').trim()
-  if (!prompt) {
-    return reply.code(400).send({ message: '没有收到可发送的提示词。' })
-  }
-
-  const result = await sendPromptToCodexSession(session, prompt)
-  const nextSession = updatePromptxCodexSession(session.id, {
-    codexThreadId: result.threadId || session.codexThreadId,
-  }) || session
-
-  broadcastServerEvent('sessions.changed', {
-    sessionId: session.id,
-  })
-
-  return {
-    session: decorateCodexSession(nextSession),
-    message: result.message,
-    rawStdout: result.rawStdout,
-  }
 })
 
 app.post('/api/codex/runs/:runId/stop', async (request, reply) => {

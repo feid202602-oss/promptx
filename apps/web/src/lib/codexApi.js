@@ -70,13 +70,6 @@ export function searchCodexSessionFiles(sessionId, query, options = {}) {
   })
 }
 
-export function sendPromptToCodexSession(sessionId, payload) {
-  return request(`/api/codex/sessions/${encodeURIComponent(sessionId)}/send`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
-}
-
 export function updateTaskCodexSession(taskSlug, sessionId) {
   return request(`/api/tasks/${encodeURIComponent(taskSlug)}/codex-session`, {
     method: 'POST',
@@ -127,57 +120,6 @@ export async function streamCodexRun(runId, options = {}) {
   const query = params.toString()
   const response = await fetch(`${API_BASE}/api/codex/runs/${encodeURIComponent(runId)}/stream${query ? `?${query}` : ''}`, {
     method: 'GET',
-    signal: options.signal,
-  })
-
-  if (!response.ok) {
-    const errorPayload = await response.json().catch(() => ({}))
-    throw new Error(errorPayload.message || '请求失败。')
-  }
-
-  if (!response.body) {
-    throw new Error('浏览器不支持流式响应。')
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { value, done } = await reader.read()
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
-
-    let newlineIndex = buffer.indexOf('\n')
-    while (newlineIndex !== -1) {
-      const line = buffer.slice(0, newlineIndex).trim()
-      buffer = buffer.slice(newlineIndex + 1)
-
-      if (line) {
-        const event = JSON.parse(line)
-        options.onEvent?.(event)
-      }
-
-      newlineIndex = buffer.indexOf('\n')
-    }
-
-    if (done) {
-      const tail = buffer.trim()
-      if (tail) {
-        const event = JSON.parse(tail)
-        options.onEvent?.(event)
-      }
-      break
-    }
-  }
-}
-
-export async function streamPromptToCodexSession(sessionId, payload, options = {}) {
-  const response = await fetch(`${API_BASE}/api/codex/sessions/${encodeURIComponent(sessionId)}/send-stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
     signal: options.signal,
   })
 

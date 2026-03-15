@@ -21,10 +21,8 @@ export {
   listCodexSessions,
   listCodexWorkspaces,
   searchCodexSessionFiles,
-  sendPromptToCodexSession,
   stopCodexRun,
   streamCodexRun,
-  streamPromptToCodexSession,
   updateTaskCodexSession,
   updateCodexSession,
 } from './codexApi.js'
