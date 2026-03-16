@@ -551,6 +551,39 @@ function loadRunBaseline(runId = '') {
   }
 }
 
+function loadRunFinalSnapshot(runId = '') {
+  const row = get(
+    `SELECT run_id, repo_root, head_oid, branch_label, created_at
+     FROM run_git_final_snapshots
+     WHERE run_id = ?`,
+    [String(runId || '').trim()]
+  )
+
+  if (!row) {
+    return null
+  }
+
+  const entries = new Map()
+  all(
+    `SELECT path, state_json
+     FROM run_git_final_snapshot_entries
+     WHERE run_id = ?
+     ORDER BY path ASC`,
+    [row.run_id]
+  ).forEach((entry) => {
+    entries.set(String(entry.path || '').trim(), parseState(entry.state_json))
+  })
+
+  return {
+    runId: row.run_id,
+    repoRoot: String(row.repo_root || ''),
+    headOid: String(row.head_oid || ''),
+    branchLabel: String(row.branch_label || ''),
+    createdAt: row.created_at,
+    entries,
+  }
+}
+
 function saveTaskBaseline(taskSlug = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map()) {
   const now = new Date().toISOString()
   const normalizedTaskSlug = String(taskSlug || '').trim()
@@ -599,6 +632,31 @@ function saveRunBaseline(runId = '', repoRoot = '', headOid = '', branchLabel = 
   })
 
   return loadRunBaseline(normalizedRunId)
+}
+
+function saveRunFinalSnapshot(runId = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map()) {
+  const now = new Date().toISOString()
+  const normalizedRunId = String(runId || '').trim()
+
+  transaction(() => {
+    run('DELETE FROM run_git_final_snapshot_entries WHERE run_id = ?', [normalizedRunId])
+    run('DELETE FROM run_git_final_snapshots WHERE run_id = ?', [normalizedRunId])
+    run(
+      `INSERT INTO run_git_final_snapshots (run_id, repo_root, head_oid, branch_label, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [normalizedRunId, repoRoot, headOid, branchLabel, now]
+    )
+
+    entries.forEach((state, filePath) => {
+      run(
+        `INSERT INTO run_git_final_snapshot_entries (run_id, path, state_json)
+         VALUES (?, ?, ?)`,
+        [normalizedRunId, filePath, serializeState(state)]
+      )
+    })
+  })
+
+  return loadRunFinalSnapshot(normalizedRunId)
 }
 
 function resolveTaskRepoRoot(taskSlug = '') {
@@ -664,6 +722,27 @@ export function captureRunGitBaseline(runId = '', cwd = '') {
 
   const { headOid, snapshots } = captureDirtySnapshots(repoRoot)
   return saveRunBaseline(normalizedRunId, repoRoot, headOid, resolveGitBranchLabel(repoRoot), snapshots)
+}
+
+export function captureRunGitFinalSnapshot(runId = '', cwd = '') {
+  const normalizedRunId = String(runId || '').trim()
+  if (!normalizedRunId) {
+    return null
+  }
+
+  const existing = loadRunFinalSnapshot(normalizedRunId)
+  if (existing) {
+    return existing
+  }
+
+  const baseline = loadRunBaseline(normalizedRunId)
+  const repoRoot = resolveGitRepoRoot(cwd) || resolveGitRepoRoot(baseline?.repoRoot || '')
+  if (!repoRoot) {
+    return null
+  }
+
+  const { headOid, snapshots } = captureDirtySnapshots(repoRoot)
+  return saveRunFinalSnapshot(normalizedRunId, repoRoot, headOid, resolveGitBranchLabel(repoRoot), snapshots)
 }
 
 function parsePatchStats(patch = '') {
@@ -1131,6 +1210,7 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
   }
 
   let baseline = null
+  let comparisonSnapshot = null
   if (scope === 'run') {
     if (!runId) {
       return createUnsupportedResult('请选择一轮执行后再查看本轮代码变更。')
@@ -1139,6 +1219,7 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
       return createUnsupportedResult('没有找到对应的执行记录。')
     }
     baseline = loadRunBaseline(runId)
+    comparisonSnapshot = loadRunFinalSnapshot(runId)
   } else {
     baseline = loadTaskBaseline(normalizedTaskSlug)
   }
@@ -1158,13 +1239,29 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
     )
   }
 
+  if (scope === 'run' && !comparisonSnapshot) {
+    const fallbackRepoRoot = resolveGitRepoRoot(baseline.repoRoot) || resolveTaskRepoRoot(normalizedTaskSlug)
+    return createUnsupportedResult(
+      '这轮执行缺少结束快照，暂时无法准确还原本轮代码变更。',
+      fallbackRepoRoot,
+      fallbackRepoRoot ? resolveGitBranchLabel(fallbackRepoRoot) : ''
+    )
+  }
+
   const repoRoot = resolveGitRepoRoot(baseline.repoRoot)
   if (!repoRoot) {
     return createUnsupportedResult('原工作目录已不是有效的 Git 仓库，暂时无法读取代码变更。', baseline.repoRoot)
   }
-  const branch = resolveGitBranchLabel(repoRoot)
-  const currentHeadOid = resolveGitHeadOid(repoRoot)
-  const workspaceStatusSignature = resolveWorkspaceStatusSignature(repoRoot)
+  const currentBranchLabel = resolveGitBranchLabel(repoRoot)
+  const branch = scope === 'run' && comparisonSnapshot?.branchLabel
+    ? String(comparisonSnapshot.branchLabel || '')
+    : currentBranchLabel
+  const currentHeadOid = scope === 'run' && comparisonSnapshot
+    ? String(comparisonSnapshot.headOid || '')
+    : resolveGitHeadOid(repoRoot)
+  const workspaceStatusSignature = scope === 'run' && comparisonSnapshot
+    ? ''
+    : resolveWorkspaceStatusSignature(repoRoot)
   const warnings = []
 
   if (baseline.headOid) {
@@ -1197,6 +1294,10 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
     baseline.headOid,
     baseline.branchLabel,
     baseline.entries.size,
+    comparisonSnapshot?.createdAt || '',
+    comparisonSnapshot?.headOid || '',
+    comparisonSnapshot?.branchLabel || '',
+    comparisonSnapshot?.entries?.size || 0,
     targetFilePath,
     includeFiles,
     includeStats,
@@ -1221,6 +1322,9 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
 
   const { entries: workingTreeEntries } = listGitChangeEntries(repoRoot)
   const baselineStateForPath = createBaselineStateResolver(repoRoot, baseline)
+  const nextStateForPath = scope === 'run' && comparisonSnapshot
+    ? createBaselineStateResolver(repoRoot, comparisonSnapshot)
+    : (filePath) => readFileState(repoRoot, filePath)
   const files = []
   let additions = 0
   let deletions = 0
@@ -1231,12 +1335,12 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
     : new Set([
       ...baseline.entries.keys(),
       ...listCommittedChangeEntries(repoRoot, baseline.headOid, currentHeadOid).keys(),
-      ...workingTreeEntries.keys(),
+      ...(comparisonSnapshot ? comparisonSnapshot.entries.keys() : workingTreeEntries.keys()),
     ])
 
   candidatePaths.forEach((filePath) => {
     const previousState = baselineStateForPath(filePath)
-    const nextState = readFileState(repoRoot, filePath)
+    const nextState = nextStateForPath(filePath)
     const diffEntry = createDiffFileEntry(filePath, previousState, nextState, {
       includePatch: Boolean(targetFilePath),
       includeStats,

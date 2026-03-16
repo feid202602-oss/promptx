@@ -824,10 +824,13 @@ export function formatCodexEvent(event = {}) {
 
 export function getProcessStatus(turn) {
   if (turn.status === 'running') {
-    return '运行中'
+    return '进行中'
   }
   if (turn.status === 'error') {
     return '失败'
+  }
+  if (turn.status === 'interrupted') {
+    return '已中断'
   }
   if (turn.status === 'stopped') {
     return '已停止'
@@ -1779,7 +1782,7 @@ export function useCodexSessionPanel(props, emit) {
     if (turn.status === 'error') {
       return 'border-red-300 bg-red-50 text-red-900 dark:border-[#7b4f4a] dark:bg-[#372321] dark:text-[#f0dfdc]'
     }
-    if (turn.status === 'stopped') {
+    if (turn.status === 'interrupted' || turn.status === 'stopped') {
       return 'border-stone-300 bg-stone-100 text-stone-700 dark:border-[#544941] dark:bg-[#302924] dark:text-stone-200'
     }
     if (turn.status === 'completed') {

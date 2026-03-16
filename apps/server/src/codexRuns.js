@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid'
 import { all, get, run, transaction } from './db.js'
 import { getPromptxCodexSessionById } from './codexSessions.js'
-import { captureRunGitBaseline, captureTaskGitBaseline } from './gitDiff.js'
+import { captureRunGitBaseline, captureRunGitFinalSnapshot, captureTaskGitBaseline } from './gitDiff.js'
 import { getTaskBySlug, updateTaskCodexSession } from './repository.js'
 
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'error', 'stopped', 'interrupted'])
@@ -318,6 +318,24 @@ export function createCodexRun(input = {}) {
   return getCodexRunById(runId, { withEvents: true })
 }
 
+function captureTerminalRunSnapshot(runRecord) {
+  const sessionId = String(runRecord?.session_id || runRecord?.sessionId || '').trim()
+  if (!sessionId) {
+    return null
+  }
+
+  const session = getPromptxCodexSessionById(sessionId)
+  if (!session?.cwd) {
+    return null
+  }
+
+  try {
+    return captureRunGitFinalSnapshot(runRecord.id, session.cwd)
+  } catch {
+    return null
+  }
+}
+
 export function appendCodexRunEvent(runId, payloadOrSeq = {}, maybeSeqOrPayload = 1) {
   const targetRun = getRunRowById(runId)
   if (!targetRun) {
@@ -373,6 +391,7 @@ export function updateCodexRun(runId, patch = {}) {
 
   if (isTerminalRunStatus(status) || finishedAt) {
     flushPendingRunEvents(existing.id)
+    captureTerminalRunSnapshot(existing)
   }
 
   transaction(() => {

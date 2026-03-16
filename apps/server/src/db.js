@@ -277,6 +277,26 @@ function migrateToV1() {
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_run_git_baseline_entries_scope_path
       ON run_git_baseline_entries(run_id, path);
+
+    CREATE TABLE IF NOT EXISTS run_git_final_snapshots (
+      run_id TEXT PRIMARY KEY,
+      repo_root TEXT NOT NULL,
+      head_oid TEXT NOT NULL DEFAULT '',
+      branch_label TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES codex_runs(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS run_git_final_snapshot_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      FOREIGN KEY (run_id) REFERENCES run_git_final_snapshots(run_id) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_run_git_final_snapshot_entries_scope_path
+      ON run_git_final_snapshot_entries(run_id, path);
   `)
 
   const alterStatements = [

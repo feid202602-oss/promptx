@@ -48,6 +48,10 @@ test('getProcessStatus reflects stopped run', () => {
   assert.equal(getProcessStatus({ status: 'stopped' }), '已停止')
 })
 
+test('getProcessStatus reflects interrupted run', () => {
+  assert.equal(getProcessStatus({ status: 'interrupted' }), '已中断')
+})
+
 test('classifyCodexIssue recognizes billing problems', () => {
   const issue = classifyCodexIssue('Error: insufficient_quota. Please check your billing account.')
 

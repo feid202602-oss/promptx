@@ -230,7 +230,16 @@ export function useTaskDiffReviewData(props) {
   })
 
   function getRunStatusLabel(run) {
-    return run?.status === 'completed' ? '已完成' : run?.status === 'error' ? '失败' : '已停止'
+    if (run?.status === 'completed') {
+      return '已完成'
+    }
+    if (run?.status === 'error') {
+      return '失败'
+    }
+    if (run?.status === 'interrupted') {
+      return '已中断'
+    }
+    return '已停止'
   }
 
   function setPatchLineRef(lineId, element) {
