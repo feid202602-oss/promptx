@@ -1,62 +1,169 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { createRequire } from 'node:module'
-import initSqlJs from 'sql.js'
+import { fileURLToPath } from 'node:url'
+import Database from 'better-sqlite3'
 
-const require = createRequire(import.meta.url)
-const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
-const dataDir = path.resolve(process.cwd(), 'data')
+const SCHEMA_VERSION = 1
+const serverRootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const dataDir = process.env.PROMPTX_DATA_DIR
+  ? path.resolve(process.env.PROMPTX_DATA_DIR)
+  : path.join(serverRootDir, 'data')
 const dbPath = path.join(dataDir, 'promptx.sqlite')
 
 fs.mkdirSync(dataDir, { recursive: true })
 
-const SQL = await initSqlJs({
-  locateFile: () => wasmPath,
-})
+let db = openDatabaseFromDisk()
+let transactionDepth = 0
 
-const db = fs.existsSync(dbPath)
-  ? new SQL.Database(new Uint8Array(fs.readFileSync(dbPath)))
-  : new SQL.Database()
+function setDatabasePragmas(targetDb) {
+  targetDb.pragma('foreign_keys = ON')
+  targetDb.pragma('journal_mode = WAL')
+  targetDb.pragma('synchronous = NORMAL')
+}
 
-db.run('PRAGMA foreign_keys = ON;')
+function validateDatabase(targetDb) {
+  targetDb.prepare('SELECT name FROM sqlite_master LIMIT 1').all()
+}
 
-const PERSIST_DEBOUNCE_MS = 120
+function createDatabaseConnection() {
+  const connection = new Database(dbPath)
+  setDatabasePragmas(connection)
+  validateDatabase(connection)
+  return connection
+}
 
-let persistTimer = null
-let persistPending = false
+function closeDatabase(targetDb) {
+  if (!targetDb) {
+    return
+  }
+
+  try {
+    targetDb.close()
+  } catch {
+    // Ignore close failures during process shutdown or reset.
+  }
+}
+
+function backupDatabaseFile(reason = 'legacy') {
+  if (!fs.existsSync(dbPath)) {
+    return ''
+  }
+
+  const backupPath = `${dbPath}.${reason}-${Date.now()}.bak`
+  fs.copyFileSync(dbPath, backupPath)
+  return backupPath
+}
+
+function resetDatabaseFile() {
+  closeDatabase(db)
+  fs.rmSync(dbPath, { force: true })
+  db = createDatabaseConnection()
+}
+
+function openDatabaseFromDisk() {
+  try {
+    return createDatabaseConnection()
+  } catch {
+    backupDatabaseFile('corrupt')
+    fs.rmSync(dbPath, { force: true })
+    return createDatabaseConnection()
+  }
+}
+
+function normalizeIdentifier(value = '') {
+  const text = String(value || '').trim()
+  if (!/^[A-Za-z0-9_]+$/.test(text)) {
+    throw new Error(`非法标识符：${value}`)
+  }
+  return text
+}
+
+function normalizeParams(params = []) {
+  if (Array.isArray(params)) {
+    return params
+  }
+
+  if (params && typeof params === 'object') {
+    return params
+  }
+
+  if (typeof params === 'undefined') {
+    return []
+  }
+
+  return [params]
+}
+
+function executeStatement(statement, method, params = []) {
+  const normalized = normalizeParams(params)
+
+  if (Array.isArray(normalized)) {
+    return statement[method](...normalized)
+  }
+
+  return statement[method](normalized)
+}
 
 function tableExists(name) {
-  return Boolean(get(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, [name]))
+  return Boolean(
+    get('SELECT name FROM sqlite_master WHERE type = ? AND name = ?', ['table', String(name || '').trim()])
+  )
 }
 
 function columnExists(tableName, columnName) {
   try {
-    return all(`PRAGMA table_info(${tableName})`).some((row) => row.name === columnName)
+    const normalizedTableName = normalizeIdentifier(tableName)
+    return all(`PRAGMA table_info(${normalizedTableName})`).some((row) => row.name === columnName)
   } catch {
     return false
   }
 }
 
-function resetLegacyTaskSchemaIfNeeded() {
+function hasLegacySchema() {
   const hasLegacyDocumentsTable = tableExists('documents')
   const hasLegacyBlockColumn = tableExists('blocks') && !columnExists('blocks', 'task_id')
   const hasLegacyTaskColumns = tableExists('tasks') && !columnExists('tasks', 'auto_title')
 
-  if (!hasLegacyDocumentsTable && !hasLegacyBlockColumn && !hasLegacyTaskColumns) {
-    return
+  return hasLegacyDocumentsTable || hasLegacyBlockColumn || hasLegacyTaskColumns
+}
+
+function resetLegacyDatabaseIfNeeded() {
+  if (!hasLegacySchema()) {
+    return false
   }
 
-  db.run(`
-    DROP TABLE IF EXISTS blocks;
-    DROP TABLE IF EXISTS tasks;
-    DROP TABLE IF EXISTS documents;
+  backupDatabaseFile('legacy')
+  resetDatabaseFile()
+  return true
+}
+
+function ensureSchemaMetaTable() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `)
 }
 
-function ensureSchema() {
-  resetLegacyTaskSchemaIfNeeded()
+function readSchemaVersion() {
+  ensureSchemaMetaTable()
+  const row = get('SELECT value FROM schema_meta WHERE key = ?', ['schema_version'])
+  return Math.max(0, Number(row?.value) || 0)
+}
 
-  db.run(`
+function writeSchemaVersion(version = 0) {
+  ensureSchemaMetaTable()
+  run(
+    `INSERT INTO schema_meta (key, value)
+     VALUES ('schema_version', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [String(Math.max(0, Number(version) || 0))]
+  )
+}
+
+function migrateToV1() {
+  db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       slug TEXT NOT NULL UNIQUE,
@@ -172,128 +279,94 @@ function ensureSchema() {
       ON run_git_baseline_entries(run_id, path);
   `)
 
-  try {
-    db.run(`ALTER TABLE tasks ADD COLUMN auto_title TEXT NOT NULL DEFAULT ''`)
-  } catch {
-    // Column already exists.
-  }
+  const alterStatements = [
+    `ALTER TABLE tasks ADD COLUMN auto_title TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE tasks ADD COLUMN last_prompt_preview TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE tasks ADD COLUMN codex_session_id TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE task_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE run_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE codex_run_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'event'`,
+  ]
 
-  try {
-    db.run(`ALTER TABLE tasks ADD COLUMN last_prompt_preview TEXT NOT NULL DEFAULT ''`)
-  } catch {
-    // Column already exists.
-  }
+  alterStatements.forEach((statement) => {
+    try {
+      db.exec(statement)
+    } catch {
+      // Column already exists.
+    }
+  })
 
-  try {
-    db.run(`ALTER TABLE tasks ADD COLUMN codex_session_id TEXT NOT NULL DEFAULT ''`)
-  } catch {
-    // Column already exists.
-  }
-
-  try {
-    db.run(`CREATE INDEX IF NOT EXISTS idx_tasks_codex_session_id ON tasks(codex_session_id)`)
-  } catch {
-    // Column may not be ready yet on broken legacy schema.
-  }
-
-  try {
-    db.run(`ALTER TABLE task_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`)
-  } catch {
-    // Column already exists.
-  }
-
-  try {
-    db.run(`ALTER TABLE run_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`)
-  } catch {
-    // Column already exists.
-  }
-
-  try {
-    db.run(`ALTER TABLE codex_run_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'event'`)
-  } catch {
-    // Column already exists.
-  }
-
-  db.run(`
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_codex_session_id ON tasks(codex_session_id)')
+  db.exec(`
     DELETE FROM blocks
     WHERE task_id NOT IN (SELECT id FROM tasks);
   `)
 }
 
+function ensureSchema() {
+  resetLegacyDatabaseIfNeeded()
+  const currentVersion = readSchemaVersion()
+
+  if (currentVersion < 1) {
+    migrateToV1()
+    writeSchemaVersion(1)
+  }
+
+  if (readSchemaVersion() < SCHEMA_VERSION) {
+    writeSchemaVersion(SCHEMA_VERSION)
+  }
+}
+
 ensureSchema()
-persist({ immediate: true })
 
-function writeDatabaseToDisk() {
-  fs.writeFileSync(dbPath, Buffer.from(db.export()))
-  db.run('PRAGMA foreign_keys = ON;')
-  persistPending = false
-}
-
-function clearPersistTimer() {
-  if (persistTimer) {
-    clearTimeout(persistTimer)
-    persistTimer = null
-  }
-}
-
-export function persist(options = {}) {
-  const { immediate = false } = options
-  persistPending = true
-
-  if (immediate) {
-    clearPersistTimer()
-    writeDatabaseToDisk()
-    return
-  }
-
-  if (persistTimer) {
-    return
-  }
-
-  persistTimer = setTimeout(() => {
-    persistTimer = null
-    if (!persistPending) {
-      return
-    }
-    writeDatabaseToDisk()
-  }, PERSIST_DEBOUNCE_MS)
-  persistTimer.unref?.()
+export function persist() {
+  return
 }
 
 export function all(sql, params = []) {
-  const stmt = db.prepare(sql, params)
-  const rows = []
-  while (stmt.step()) {
-    rows.push(stmt.getAsObject())
-  }
-  stmt.free()
-  return rows
+  const statement = db.prepare(sql)
+  return executeStatement(statement, 'all', params)
 }
 
 export function get(sql, params = []) {
-  return all(sql, params)[0] || null
+  const statement = db.prepare(sql)
+  return executeStatement(statement, 'get', params) || null
 }
 
 export function run(sql, params = []) {
-  db.run(sql, params)
+  const statement = db.prepare(sql)
+  executeStatement(statement, 'run', params)
 }
 
 export function transaction(callback) {
+  const isOuterTransaction = transactionDepth === 0
+
+  if (isOuterTransaction) {
+    db.exec('BEGIN')
+  }
+
+  transactionDepth += 1
+
   try {
-    db.run('BEGIN')
     const result = callback()
-    db.run('COMMIT')
-    persist()
+    transactionDepth -= 1
+
+    if (isOuterTransaction) {
+      db.exec('COMMIT')
+    }
+
     return result
   } catch (error) {
-    db.run('ROLLBACK')
+    transactionDepth -= 1
+
+    if (isOuterTransaction) {
+      db.exec('ROLLBACK')
+    }
+
     throw error
   }
 }
 
 process.once('exit', () => {
-  if (persistPending) {
-    clearPersistTimer()
-    writeDatabaseToDisk()
-  }
+  closeDatabase(db)
 })

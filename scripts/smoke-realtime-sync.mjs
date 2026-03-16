@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 const baseUrl = String(process.env.PROMPTX_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '')
+const smokeWorkspace = String(process.env.PROMPTX_SMOKE_CWD || process.cwd()).trim()
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function request(path, options = {}) {
@@ -118,7 +119,7 @@ async function main() {
       method: 'POST',
       body: JSON.stringify({
         title: 'realtime smoke session',
-        cwd: 'D:/code/promptx',
+        cwd: smokeWorkspace,
       }),
     })
     sessionId = session.id
@@ -176,6 +177,7 @@ async function main() {
 
     console.log(JSON.stringify({
       baseUrl,
+      smokeWorkspace,
       taskSlug,
       runId,
       beforeRun: Boolean(beforeRun?.running),

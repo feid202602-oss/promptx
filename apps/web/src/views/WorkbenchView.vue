@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   CircleAlert,
   Copy,
@@ -16,8 +16,6 @@ import CodexSessionPanel from '../components/CodexSessionPanel.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import TopToast from '../components/TopToast.vue'
-import { getTaskGitDiff } from '../lib/api.js'
-import { subscribeServerEvents } from '../lib/serverEvents.js'
 import { usePageTitle } from '../composables/usePageTitle.js'
 import { useToast } from '../composables/useToast.js'
 import { useWorkbenchTasks } from '../composables/useWorkbenchTasks.js'
@@ -29,12 +27,9 @@ const editingTaskTitleSlug = ref('')
 const diffFocusToken = ref(0)
 const preferredDiffScope = ref('workspace')
 const preferredDiffRunId = ref('')
-const taskDiffSummaryMap = ref({})
 const { toastMessage, flashToast, clearToast } = useToast()
 
 const codexPanelRef = ref(null)
-let unsubscribeServerEvents = null
-let taskDiffRequestId = 0
 
 function getCurrentPanelRef(currentTaskSlug) {
   if (!currentTaskSlug) {
@@ -103,56 +98,6 @@ function openTaskDiff(scope = 'workspace', runId = '') {
 
 function closeTaskDiff() {
   showDiffDialog.value = false
-}
-
-function getTaskDiffBadge(taskSlug) {
-  return taskDiffSummaryMap.value[String(taskSlug || '').trim()] || null
-}
-
-async function refreshTaskDiffSummaries(targetSlugs = []) {
-  const currentRequestId = ++taskDiffRequestId
-  const slugs = (targetSlugs.length ? targetSlugs : renderedTasks.value.map((task) => task.slug))
-    .map((slug) => String(slug || '').trim())
-    .filter(Boolean)
-
-  if (!slugs.length) {
-    taskDiffSummaryMap.value = {}
-    return
-  }
-
-  const uniqueSlugs = [...new Set(slugs)]
-  const nextMap = { ...taskDiffSummaryMap.value }
-
-  await Promise.all(uniqueSlugs.map(async (slug) => {
-    try {
-      const payload = await getTaskGitDiff(slug, { scope: 'workspace' })
-      nextMap[slug] = {
-        supported: Boolean(payload?.supported),
-        fileCount: Math.max(0, Number(payload?.summary?.fileCount) || 0),
-        additions: Math.max(0, Number(payload?.summary?.additions) || 0),
-        deletions: Math.max(0, Number(payload?.summary?.deletions) || 0),
-      }
-    } catch {
-      nextMap[slug] = {
-        supported: false,
-        fileCount: 0,
-        additions: 0,
-        deletions: 0,
-      }
-    }
-  }))
-
-  if (currentRequestId !== taskDiffRequestId) {
-    return
-  }
-
-  const filteredMap = {}
-  renderedTasks.value.forEach((task) => {
-    if (nextMap[task.slug]) {
-      filteredMap[task.slug] = nextMap[task.slug]
-    }
-  })
-  taskDiffSummaryMap.value = filteredMap
 }
 
 async function handleTaskTitleBlur() {
@@ -275,35 +220,12 @@ onMounted(() => {
   initializeWorkbench()
   window.addEventListener('beforeunload', handleBeforeUnload)
   window.addEventListener('keydown', handleWindowKeydown)
-
-  unsubscribeServerEvents = subscribeServerEvents((event) => {
-    const eventType = String(event.type || '').trim()
-    const eventTaskSlug = String(event.taskSlug || '').trim()
-
-    if (eventType === 'ready') {
-      refreshTaskDiffSummaries().catch(() => {})
-      return
-    }
-
-    if ((eventType === 'runs.changed' || eventType === 'tasks.changed') && eventTaskSlug) {
-      refreshTaskDiffSummaries([eventTaskSlug]).catch(() => {})
-    }
-  })
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleWindowKeydown)
-  unsubscribeServerEvents?.()
 })
-
-watch(
-  () => renderedTasks.value.map((task) => task.slug).join('|'),
-  () => {
-    refreshTaskDiffSummaries().catch(() => {})
-  },
-  { immediate: true }
-)
 </script>
 
 <template>
@@ -427,13 +349,13 @@ watch(
                 <div class="min-w-0 text-[11px] opacity-70">{{ new Date(task.updatedAt).toLocaleString('zh-CN') }}</div>
                 <div class="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] opacity-80">
                   <span
-                    v-if="getTaskDiffBadge(task.slug)?.supported && getTaskDiffBadge(task.slug)?.fileCount"
+                    v-if="task.workspaceDiffSummary?.supported && task.workspaceDiffSummary?.fileCount"
                     class="inline-flex items-center gap-1 rounded-sm border border-dashed px-1.5 py-0.5"
                     :class="task.slug === currentTaskSlug
                       ? 'border-stone-400 bg-white/70 text-stone-700 dark:border-[#73665c] dark:bg-[#3a322d] dark:text-stone-200'
                       : 'border-stone-300 text-stone-600 dark:border-[#5b514b] dark:bg-[#2d2723] dark:text-stone-300'"
                   >
-                    <span>{{ getTaskDiffBadge(task.slug)?.fileCount }} 文件</span>
+                    <span>{{ task.workspaceDiffSummary?.fileCount }} 文件</span>
                   </span>
                 </div>
               </div>

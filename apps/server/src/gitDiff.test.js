@@ -24,11 +24,23 @@ test('git diff review returns task and run scoped file changes for git workspace
   const branchName = git(repoDir, ['symbolic-ref', '--short', 'HEAD'])
 
   const originalCwd = process.cwd()
+  const originalDataDir = process.env.PROMPTX_DATA_DIR
+  const dataDir = path.join(tempDir, 'data')
+  fs.mkdirSync(dataDir, { recursive: true })
   process.chdir(tempDir)
+  process.env.PROMPTX_DATA_DIR = dataDir
 
   try {
     const { run } = await import('./db.js')
-    const { captureRunGitBaseline, captureTaskGitBaseline, getTaskGitDiffReview } = await import(`./gitDiff.js?test=${Date.now()}`)
+    const {
+      __getGitDiffCacheMetricsForTest,
+      __resetGitDiffCachesForTest,
+      captureRunGitBaseline,
+      captureTaskGitBaseline,
+      getGitDiffCacheDebugSnapshot,
+      getTaskGitDiffReview,
+      getWorkspaceGitDiffReviewByCwd,
+    } = await import(`./gitDiff.js?test=${Date.now()}`)
 
     const now = new Date().toISOString()
     run(
@@ -54,6 +66,13 @@ test('git diff review returns task and run scoped file changes for git workspace
     fs.writeFileSync(path.join(repoDir, 'new-file.txt'), 'hello\n')
 
     const workspaceDiff = getTaskGitDiffReview('task-1', { scope: 'workspace' })
+    const workspaceDiffByCwd = getWorkspaceGitDiffReviewByCwd(repoDir)
+    const taskDiffFast = getTaskGitDiffReview('task-1', { scope: 'task', includeStats: false })
+    const taskDiffSummaryOnly = getTaskGitDiffReview('task-1', {
+      scope: 'task',
+      includeFiles: false,
+      includeStats: true,
+    })
     const taskDiff = getTaskGitDiffReview('task-1', { scope: 'task' })
     const taskTrackedDetail = getTaskGitDiffReview('task-1', { scope: 'task', filePath: 'tracked.txt' })
     const taskNewFileDetail = getTaskGitDiffReview('task-1', { scope: 'task', filePath: 'new-file.txt' })
@@ -61,18 +80,32 @@ test('git diff review returns task and run scoped file changes for git workspace
 
     assert.equal(workspaceDiff.supported, true)
     assert.equal(workspaceDiff.branch, branchName)
-    assert.deepEqual(workspaceDiff.summary, { fileCount: 2, additions: 2, deletions: 1 })
+    assert.deepEqual(workspaceDiff.summary, { fileCount: 2, additions: 2, deletions: 1, statsComplete: true })
     assert.deepEqual(workspaceDiff.files.map((file) => `${file.status}:${file.path}`), ['A:new-file.txt', 'M:tracked.txt'])
+    assert.deepEqual(workspaceDiffByCwd.summary, workspaceDiff.summary)
+    assert.deepEqual(workspaceDiffByCwd.files.map((file) => `${file.status}:${file.path}`), workspaceDiff.files.map((file) => `${file.status}:${file.path}`))
 
     assert.equal(taskDiff.supported, true)
     assert.equal(taskDiff.branch, branchName)
     assert.equal(taskDiff.summary.fileCount, 2)
-    assert.deepEqual(taskDiff.summary, { fileCount: 2, additions: 2, deletions: 1 })
+    assert.deepEqual(taskDiff.summary, { fileCount: 2, additions: 2, deletions: 1, statsComplete: true })
     assert.deepEqual(taskDiff.files.map((file) => `${file.status}:${file.path}`), ['A:new-file.txt', 'M:tracked.txt'])
     assert.equal(taskDiff.baseline?.branch, branchName)
     assert.equal(taskDiff.baseline?.headShort, taskDiff.baseline?.headOid.slice(0, 7))
     assert.deepEqual(taskDiff.warnings, [])
     assert.equal(taskDiff.files.find((file) => file.path === 'tracked.txt')?.patchLoaded, false)
+    assert.equal(taskDiffFast.summary.statsComplete, false)
+    assert.equal(taskDiffFast.summary.fileCount, 2)
+    assert.equal(taskDiffFast.files.find((file) => file.path === 'tracked.txt')?.statsLoaded, false)
+    assert.equal(taskDiffFast.files.find((file) => file.path === 'tracked.txt')?.additions, null)
+    assert.deepEqual(taskDiffSummaryOnly.files, [])
+    assert.equal(taskDiffSummaryOnly.summary.statsComplete, true)
+    assert.deepEqual(taskDiffSummaryOnly.summary, {
+      fileCount: 2,
+      additions: 2,
+      deletions: 1,
+      statsComplete: true,
+    })
     assert.deepEqual(taskTrackedDetail.files.map((file) => file.path), ['tracked.txt'])
     assert.match(taskTrackedDetail.files.find((file) => file.path === 'tracked.txt')?.patch || '', /--- a\/tracked\.txt/)
     assert.match(taskTrackedDetail.files.find((file) => file.path === 'tracked.txt')?.patch || '', /\+\+\+ b\/tracked\.txt/)
@@ -88,10 +121,21 @@ test('git diff review returns task and run scoped file changes for git workspace
       { additions: 1, deletions: 1 }
     )
 
+    __resetGitDiffCachesForTest()
+    getTaskGitDiffReview('task-1', { scope: 'task' })
+    const firstCacheMetrics = __getGitDiffCacheMetricsForTest()
+    getTaskGitDiffReview('task-1', { scope: 'task' })
+    const secondCacheMetrics = __getGitDiffCacheMetricsForTest()
+    const cacheSnapshot = getGitDiffCacheDebugSnapshot()
+    assert.equal(firstCacheMetrics.reviewHits, 0)
+    assert.equal(secondCacheMetrics.reviewHits, 1)
+    assert.equal(cacheSnapshot.reviewCacheSize >= 1, true)
+    assert.equal(cacheSnapshot.fileCacheSize >= 1, true)
+
     assert.equal(runDiff.supported, true)
     assert.equal(runDiff.branch, branchName)
     assert.equal(runDiff.summary.fileCount, 2)
-    assert.deepEqual(runDiff.summary, { fileCount: 2, additions: 2, deletions: 1 })
+    assert.deepEqual(runDiff.summary, { fileCount: 2, additions: 2, deletions: 1, statsComplete: true })
     assert.deepEqual(runDiff.files.map((file) => `${file.status}:${file.path}`), ['A:new-file.txt', 'M:tracked.txt'])
 
     git(repoDir, ['add', 'tracked.txt', 'new-file.txt'])
@@ -101,10 +145,10 @@ test('git diff review returns task and run scoped file changes for git workspace
     const committedTaskDiff = getTaskGitDiffReview('task-1', { scope: 'task' })
     const committedTaskTrackedDetail = getTaskGitDiffReview('task-1', { scope: 'task', filePath: 'tracked.txt' })
     assert.equal(committedWorkspaceDiff.supported, true)
-    assert.deepEqual(committedWorkspaceDiff.summary, { fileCount: 0, additions: 0, deletions: 0 })
+    assert.deepEqual(committedWorkspaceDiff.summary, { fileCount: 0, additions: 0, deletions: 0, statsComplete: true })
     assert.deepEqual(committedWorkspaceDiff.files, [])
     assert.equal(committedTaskDiff.supported, true)
-    assert.deepEqual(committedTaskDiff.summary, { fileCount: 2, additions: 2, deletions: 1 })
+    assert.deepEqual(committedTaskDiff.summary, { fileCount: 2, additions: 2, deletions: 1, statsComplete: true })
     assert.deepEqual(committedTaskDiff.files.map((file) => `${file.status}:${file.path}`), ['A:new-file.txt', 'M:tracked.txt'])
     assert.equal(committedTaskDiff.files.find((file) => file.path === 'tracked.txt')?.patchLoaded, false)
     assert.deepEqual(committedTaskTrackedDetail.files.map((file) => file.path), ['tracked.txt'])
@@ -113,5 +157,10 @@ test('git diff review returns task and run scoped file changes for git workspace
     assert.match(committedTaskTrackedDetail.files.find((file) => file.path === 'tracked.txt')?.patch || '', /after/)
   } finally {
     process.chdir(originalCwd)
+    if (typeof originalDataDir === 'string') {
+      process.env.PROMPTX_DATA_DIR = originalDataDir
+    } else {
+      delete process.env.PROMPTX_DATA_DIR
+    }
   }
 })

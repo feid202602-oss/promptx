@@ -9,6 +9,50 @@ import { getTaskBySlug } from './repository.js'
 
 const MAX_SNAPSHOT_TEXT_BYTES = 220_000
 const MAX_PATCH_TEXT_BYTES = 260_000
+const DIFF_REVIEW_CACHE_TTL_MS = 4000
+const DIFF_REVIEW_CACHE_MAX_ENTRIES = 80
+const FILE_DIFF_CACHE_TTL_MS = 8000
+const FILE_DIFF_CACHE_MAX_ENTRIES = 400
+
+const diffReviewCache = new Map()
+const fileDiffCache = new Map()
+const gitDiffCacheMetrics = {
+  reviewHits: 0,
+  reviewMisses: 0,
+  fileHits: 0,
+  fileMisses: 0,
+}
+
+function isGitDiffDebugEnabled(channel = 'all') {
+  const rawValue = String(process.env.PROMPTX_GIT_DIFF_DEBUG || '').trim().toLowerCase()
+  if (!rawValue) {
+    return false
+  }
+
+  if (rawValue === '1' || rawValue === 'true' || rawValue === 'all' || rawValue === '*') {
+    return true
+  }
+
+  const enabledChannels = rawValue
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  return enabledChannels.includes(channel) || enabledChannels.includes('all')
+}
+
+function logGitDiffDebug(channel = 'all', action = '', meta = {}) {
+  if (!isGitDiffDebugEnabled(channel)) {
+    return
+  }
+
+  const normalizedMeta = Object.entries(meta)
+    .filter(([, value]) => value !== '' && value !== null && typeof value !== 'undefined')
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(' ')
+
+  console.info(`[promptx][git-diff:${channel}] ${action}${normalizedMeta ? ` ${normalizedMeta}` : ''}`)
+}
 
 function runGit(repoRoot = '', args = [], options = {}) {
   const result = spawnSync('git', ['-C', repoRoot, ...args], {
@@ -44,6 +88,75 @@ function splitNullText(value = '') {
 
 function createHash(value) {
   return crypto.createHash('sha1').update(value).digest('hex')
+}
+
+function getCachedValue(cache, key, ttlMs, metricKey = '', options = {}) {
+  const {
+    channel = 'all',
+    cacheName = 'cache',
+    debugMeta = {},
+  } = options
+  const entry = cache.get(key)
+  if (!entry) {
+    if (metricKey) {
+      gitDiffCacheMetrics[metricKey] += 1
+    }
+    logGitDiffDebug(channel, 'miss', {
+      cache: cacheName,
+      ...debugMeta,
+    })
+    return null
+  }
+
+  if (Date.now() - entry.createdAt > ttlMs) {
+    cache.delete(key)
+    if (metricKey) {
+      gitDiffCacheMetrics[metricKey] += 1
+    }
+    logGitDiffDebug(channel, 'stale', {
+      cache: cacheName,
+      ...debugMeta,
+    })
+    return null
+  }
+
+  cache.delete(key)
+  cache.set(key, entry)
+  logGitDiffDebug(channel, 'hit', {
+    cache: cacheName,
+    ...debugMeta,
+  })
+  return entry.value
+}
+
+function setCachedValue(cache, key, value, maxEntries = 0, options = {}) {
+  const {
+    channel = 'all',
+    cacheName = 'cache',
+    debugMeta = {},
+  } = options
+  cache.delete(key)
+  cache.set(key, {
+    value,
+    createdAt: Date.now(),
+  })
+  logGitDiffDebug(channel, 'store', {
+    cache: cacheName,
+    size: cache.size,
+    ...debugMeta,
+  })
+
+  while (maxEntries > 0 && cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value
+    if (typeof oldestKey === 'undefined') {
+      break
+    }
+    cache.delete(oldestKey)
+    logGitDiffDebug(channel, 'evict', {
+      cache: cacheName,
+      size: cache.size,
+    })
+  }
 }
 
 function normalizeDiffStatus(value = '') {
@@ -120,6 +233,19 @@ function resolveGitBranchLabel(repoRoot = '') {
   }
 
   return ''
+}
+
+function resolveWorkspaceStatusSignature(repoRoot = '') {
+  if (!repoRoot) {
+    return ''
+  }
+
+  const result = runGitBuffer(repoRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  if (result.status !== 0) {
+    return ''
+  }
+
+  return createHash(result.stdout)
 }
 
 function resolveShortOid(value = '') {
@@ -582,29 +708,101 @@ function parseNumstat(output = '') {
 
 function buildDiffPayloadForFile(filePath = '', previousState = null, nextState = null, options = {}) {
   const includePatch = Boolean(options.includePatch)
+  const includeStats = includePatch || Boolean(options.includeStats)
+  const cacheKey = JSON.stringify([
+    String(filePath || '').trim(),
+    includePatch,
+    includeStats,
+    Boolean(previousState?.exists),
+    Boolean(previousState?.isBinary),
+    Boolean(previousState?.tooLarge),
+    String(previousState?.hash || ''),
+    Boolean(nextState?.exists),
+    Boolean(nextState?.isBinary),
+    Boolean(nextState?.tooLarge),
+    String(nextState?.hash || ''),
+  ])
+  const cachedPayload = getCachedValue(fileDiffCache, cacheKey, FILE_DIFF_CACHE_TTL_MS, 'fileMisses', {
+    channel: 'file',
+    cacheName: 'file-diff',
+    debugMeta: {
+      path: String(filePath || '').trim(),
+      includePatch,
+      includeStats,
+    },
+  })
+  if (cachedPayload) {
+    gitDiffCacheMetrics.fileHits += 1
+    return cachedPayload
+  }
 
   if ((previousState?.isBinary || nextState?.isBinary)) {
-    return {
+    const payload = {
       binary: true,
       tooLarge: false,
       patch: '',
       patchLoaded: true,
       additions: 0,
       deletions: 0,
+      statsLoaded: true,
       message: '二进制文件暂不支持在线 diff 预览。',
     }
+    setCachedValue(fileDiffCache, cacheKey, payload, FILE_DIFF_CACHE_MAX_ENTRIES, {
+      channel: 'file',
+      cacheName: 'file-diff',
+      debugMeta: {
+        path: String(filePath || '').trim(),
+        includePatch,
+        includeStats,
+      },
+    })
+    return payload
   }
 
   if (previousState?.tooLarge || nextState?.tooLarge) {
-    return {
+    const payload = {
       binary: false,
       tooLarge: true,
       patch: '',
       patchLoaded: true,
       additions: 0,
       deletions: 0,
+      statsLoaded: true,
       message: '文件内容较大，暂不展示具体 diff。',
     }
+    setCachedValue(fileDiffCache, cacheKey, payload, FILE_DIFF_CACHE_MAX_ENTRIES, {
+      channel: 'file',
+      cacheName: 'file-diff',
+      debugMeta: {
+        path: String(filePath || '').trim(),
+        includePatch,
+        includeStats,
+      },
+    })
+    return payload
+  }
+
+  if (!includeStats) {
+    const payload = {
+      binary: false,
+      tooLarge: false,
+      patch: '',
+      patchLoaded: false,
+      additions: null,
+      deletions: null,
+      statsLoaded: false,
+      message: '',
+    }
+    setCachedValue(fileDiffCache, cacheKey, payload, FILE_DIFF_CACHE_MAX_ENTRIES, {
+      channel: 'file',
+      cacheName: 'file-diff',
+      debugMeta: {
+        path: String(filePath || '').trim(),
+        includePatch,
+        includeStats,
+      },
+    })
+    return payload
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-git-diff-'))
@@ -636,15 +834,26 @@ function buildDiffPayloadForFile(filePath = '', previousState = null, nextState 
     const numstat = parseNumstat(statsResult.stdout)
 
     if (!includePatch) {
-      return {
+      const payload = {
         binary: false,
         tooLarge: false,
         patch: '',
         patchLoaded: false,
         additions: numstat.additions,
         deletions: numstat.deletions,
+        statsLoaded: true,
         message: '',
       }
+      setCachedValue(fileDiffCache, cacheKey, payload, FILE_DIFF_CACHE_MAX_ENTRIES, {
+        channel: 'file',
+        cacheName: 'file-diff',
+        debugMeta: {
+          path: String(filePath || '').trim(),
+          includePatch,
+          includeStats,
+        },
+      })
+      return payload
     }
 
     const result = runGit(tempDir, [
@@ -666,38 +875,71 @@ function buildDiffPayloadForFile(filePath = '', previousState = null, nextState 
     const stats = parsePatchStats(patch)
 
     if (!patch) {
-      return {
+      const payload = {
         binary: false,
         tooLarge: false,
         patch: '',
         patchLoaded: true,
         additions: stats.additions,
         deletions: stats.deletions,
+        statsLoaded: true,
         message: '',
       }
+      setCachedValue(fileDiffCache, cacheKey, payload, FILE_DIFF_CACHE_MAX_ENTRIES, {
+        channel: 'file',
+        cacheName: 'file-diff',
+        debugMeta: {
+          path: String(filePath || '').trim(),
+          includePatch,
+          includeStats,
+        },
+      })
+      return payload
     }
 
     if (patch.length > MAX_PATCH_TEXT_BYTES) {
-      return {
+      const payload = {
         binary: false,
         tooLarge: true,
         patch: '',
         patchLoaded: true,
         additions: stats.additions,
         deletions: stats.deletions,
+        statsLoaded: true,
         message: 'diff 内容较长，暂不在页面内完整展示。',
       }
+      setCachedValue(fileDiffCache, cacheKey, payload, FILE_DIFF_CACHE_MAX_ENTRIES, {
+        channel: 'file',
+        cacheName: 'file-diff',
+        debugMeta: {
+          path: String(filePath || '').trim(),
+          includePatch,
+          includeStats,
+        },
+      })
+      return payload
     }
 
-    return {
+    const payload = {
       binary: false,
       tooLarge: false,
       patch,
       patchLoaded: true,
       additions: stats.additions,
       deletions: stats.deletions,
+      statsLoaded: true,
       message: '',
     }
+    setCachedValue(fileDiffCache, cacheKey, payload, FILE_DIFF_CACHE_MAX_ENTRIES, {
+      channel: 'file',
+      cacheName: 'file-diff',
+      debugMeta: {
+        path: String(filePath || '').trim(),
+        includePatch,
+        includeStats,
+      },
+    })
+    return payload
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true })
   }
@@ -740,6 +982,7 @@ function createDiffFileEntry(filePath = '', previousState = null, nextState = nu
     status: deriveFileStatus(previousState, nextState),
     additions: patchPayload.additions,
     deletions: patchPayload.deletions,
+    statsLoaded: patchPayload.statsLoaded,
     binary: patchPayload.binary,
     tooLarge: patchPayload.tooLarge,
     patch: patchPayload.patch,
@@ -765,6 +1008,105 @@ function createUnsupportedResult(reason = '', repoRoot = '', branch = '') {
   }
 }
 
+export function getWorkspaceGitDiffReviewByCwd(cwd = '', options = {}) {
+  const repoRoot = resolveGitRepoRoot(cwd)
+  if (!repoRoot) {
+    return createUnsupportedResult('当前工作目录不是 Git 仓库，暂不支持代码变更审查。')
+  }
+
+  const branch = resolveGitBranchLabel(repoRoot)
+  const workspaceStatusSignature = resolveWorkspaceStatusSignature(repoRoot)
+  const currentHeadOid = resolveGitHeadOid(repoRoot)
+  const targetFilePath = String(options.filePath || '').trim()
+  const includeFiles = targetFilePath || options.includeFiles !== false
+  const includeStats = targetFilePath || options.includeStats !== false
+  const cacheKey = JSON.stringify([
+    'workspace',
+    repoRoot,
+    branch,
+    currentHeadOid,
+    workspaceStatusSignature,
+    targetFilePath,
+    includeFiles,
+    includeStats,
+  ])
+  const cachedReview = getCachedValue(diffReviewCache, cacheKey, DIFF_REVIEW_CACHE_TTL_MS, 'reviewMisses', {
+    channel: 'review',
+    cacheName: 'diff-review',
+    debugMeta: {
+      scope: 'workspace',
+      repo: path.basename(repoRoot),
+      filePath: targetFilePath,
+      includeFiles,
+      includeStats,
+    },
+  })
+  if (cachedReview) {
+    gitDiffCacheMetrics.reviewHits += 1
+    return cachedReview
+  }
+
+  const { headOid, entries: workingTreeEntries } = listGitChangeEntries(repoRoot)
+  const baselineStateForPath = createBaselineStateResolver(repoRoot, {
+    headOid,
+    entries: new Map(),
+  })
+  const files = []
+  let additions = 0
+  let deletions = 0
+  let fileCount = 0
+  const candidatePaths = targetFilePath ? [targetFilePath] : [...workingTreeEntries.keys()]
+
+  candidatePaths.forEach((filePath) => {
+    const previousState = baselineStateForPath(filePath)
+    const nextState = readFileState(repoRoot, filePath)
+    const diffEntry = createDiffFileEntry(filePath, previousState, nextState, {
+      includePatch: Boolean(targetFilePath),
+      includeStats,
+    })
+    if (!diffEntry) {
+      return
+    }
+
+    fileCount += 1
+    additions += Math.max(0, Number(diffEntry.additions) || 0)
+    deletions += Math.max(0, Number(diffEntry.deletions) || 0)
+    if (includeFiles) {
+      files.push(diffEntry)
+    }
+  })
+
+  const payload = {
+    supported: true,
+    scope: 'workspace',
+    runId: '',
+    repoRoot,
+    branch,
+    baseline: null,
+    warnings: [],
+    baselineCreatedAt: '',
+    summary: {
+      fileCount,
+      additions: includeStats ? additions : null,
+      deletions: includeStats ? deletions : null,
+      statsComplete: includeStats,
+    },
+    files: includeFiles ? sortDiffFiles(files) : [],
+  }
+  setCachedValue(diffReviewCache, cacheKey, payload, DIFF_REVIEW_CACHE_MAX_ENTRIES, {
+    channel: 'review',
+    cacheName: 'diff-review',
+    debugMeta: {
+      scope: 'workspace',
+      repo: path.basename(repoRoot),
+      fileCount,
+      includeFiles,
+      includeStats,
+    },
+  })
+  return payload
+}
+
 export function getTaskGitDiffReview(taskSlug = '', options = {}) {
   const normalizedTaskSlug = String(taskSlug || '').trim()
   if (!normalizedTaskSlug) {
@@ -779,55 +1121,13 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
       : 'workspace'
   const runId = String(options.runId || '').trim()
   const targetFilePath = String(options.filePath || '').trim()
+  const includeFiles = targetFilePath || options.includeFiles !== false
+  const includeStats = targetFilePath || options.includeStats !== false
 
   if (scope === 'workspace') {
-    const repoRoot = resolveTaskRepoRoot(normalizedTaskSlug)
-    if (!repoRoot) {
-      return createUnsupportedResult('当前工作目录不是 Git 仓库，暂不支持代码变更审查。')
-    }
-
-    const branch = resolveGitBranchLabel(repoRoot)
-    const { headOid, entries: workingTreeEntries } = listGitChangeEntries(repoRoot)
-    const baselineStateForPath = createBaselineStateResolver(repoRoot, {
-      headOid,
-      entries: new Map(),
+    return getWorkspaceGitDiffReviewByCwd(resolveTaskRepoRoot(normalizedTaskSlug), {
+      filePath: targetFilePath,
     })
-    const files = []
-    let additions = 0
-    let deletions = 0
-    const candidatePaths = targetFilePath ? [targetFilePath] : [...workingTreeEntries.keys()]
-
-    candidatePaths.forEach((filePath) => {
-      const previousState = baselineStateForPath(filePath)
-      const nextState = readFileState(repoRoot, filePath)
-      const diffEntry = createDiffFileEntry(filePath, previousState, nextState, {
-        includePatch: Boolean(targetFilePath),
-      })
-      if (!diffEntry) {
-        return
-      }
-
-      additions += diffEntry.additions
-      deletions += diffEntry.deletions
-      files.push(diffEntry)
-    })
-
-    return {
-      supported: true,
-      scope,
-      runId: '',
-      repoRoot,
-      branch,
-      baseline: null,
-      warnings: [],
-      baselineCreatedAt: '',
-      summary: {
-        fileCount: files.length,
-        additions,
-        deletions,
-      },
-      files: sortDiffFiles(files),
-    }
   }
 
   let baseline = null
@@ -864,6 +1164,7 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
   }
   const branch = resolveGitBranchLabel(repoRoot)
   const currentHeadOid = resolveGitHeadOid(repoRoot)
+  const workspaceStatusSignature = resolveWorkspaceStatusSignature(repoRoot)
   const warnings = []
 
   if (baseline.headOid) {
@@ -884,11 +1185,46 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
     }
   }
 
+  const cacheKey = JSON.stringify([
+    scope,
+    normalizedTaskSlug,
+    runId,
+    repoRoot,
+    branch,
+    currentHeadOid,
+    workspaceStatusSignature,
+    baseline.createdAt,
+    baseline.headOid,
+    baseline.branchLabel,
+    baseline.entries.size,
+    targetFilePath,
+    includeFiles,
+    includeStats,
+  ])
+  const cachedReview = getCachedValue(diffReviewCache, cacheKey, DIFF_REVIEW_CACHE_TTL_MS, 'reviewMisses', {
+    channel: 'review',
+    cacheName: 'diff-review',
+    debugMeta: {
+      scope,
+      task: normalizedTaskSlug,
+      runId,
+      repo: path.basename(repoRoot),
+      filePath: targetFilePath,
+      includeFiles,
+      includeStats,
+    },
+  })
+  if (cachedReview) {
+    gitDiffCacheMetrics.reviewHits += 1
+    return cachedReview
+  }
+
   const { entries: workingTreeEntries } = listGitChangeEntries(repoRoot)
   const baselineStateForPath = createBaselineStateResolver(repoRoot, baseline)
   const files = []
   let additions = 0
   let deletions = 0
+  let fileCount = 0
 
   const candidatePaths = targetFilePath
     ? [targetFilePath]
@@ -903,17 +1239,21 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
     const nextState = readFileState(repoRoot, filePath)
     const diffEntry = createDiffFileEntry(filePath, previousState, nextState, {
       includePatch: Boolean(targetFilePath),
+      includeStats,
     })
     if (!diffEntry) {
       return
     }
 
-    additions += diffEntry.additions
-    deletions += diffEntry.deletions
-    files.push(diffEntry)
+    fileCount += 1
+    additions += Math.max(0, Number(diffEntry.additions) || 0)
+    deletions += Math.max(0, Number(diffEntry.deletions) || 0)
+    if (includeFiles) {
+      files.push(diffEntry)
+    }
   })
 
-  return {
+  const payload = {
     supported: true,
     scope,
     runId: scope === 'run' ? runId : '',
@@ -930,10 +1270,52 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
     warnings,
     baselineCreatedAt: baseline.createdAt,
     summary: {
-      fileCount: files.length,
-      additions,
-      deletions,
+      fileCount,
+      additions: includeStats ? additions : null,
+      deletions: includeStats ? deletions : null,
+      statsComplete: includeStats,
     },
-    files: sortDiffFiles(files),
+    files: includeFiles ? sortDiffFiles(files) : [],
+  }
+  setCachedValue(diffReviewCache, cacheKey, payload, DIFF_REVIEW_CACHE_MAX_ENTRIES, {
+    channel: 'review',
+    cacheName: 'diff-review',
+    debugMeta: {
+      scope,
+      task: normalizedTaskSlug,
+      runId,
+      repo: path.basename(repoRoot),
+      fileCount,
+      includeFiles,
+      includeStats,
+    },
+  })
+  return payload
+}
+
+export function __resetGitDiffCachesForTest() {
+  diffReviewCache.clear()
+  fileDiffCache.clear()
+  gitDiffCacheMetrics.reviewHits = 0
+  gitDiffCacheMetrics.reviewMisses = 0
+  gitDiffCacheMetrics.fileHits = 0
+  gitDiffCacheMetrics.fileMisses = 0
+}
+
+export function __getGitDiffCacheMetricsForTest() {
+  return {
+    reviewHits: gitDiffCacheMetrics.reviewHits,
+    reviewMisses: gitDiffCacheMetrics.reviewMisses,
+    fileHits: gitDiffCacheMetrics.fileHits,
+    fileMisses: gitDiffCacheMetrics.fileMisses,
+  }
+}
+
+export function getGitDiffCacheDebugSnapshot() {
+  return {
+    debugEnabled: isGitDiffDebugEnabled(),
+    reviewCacheSize: diffReviewCache.size,
+    fileCacheSize: fileDiffCache.size,
+    metrics: __getGitDiffCacheMetricsForTest(),
   }
 }

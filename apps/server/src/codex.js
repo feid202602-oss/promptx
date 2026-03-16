@@ -11,6 +11,7 @@ const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
 const STATE_DB_PATH = path.join(CODEX_HOME, 'state_5.sqlite')
 const TMP_DIR = path.join(CODEX_HOME, 'tmp')
 const MAX_THREAD_COUNT = 120
+const MAX_OUTPUT_TAIL_LENGTH = 64 * 1024
 const RESOLVED_CODEX_BIN = resolveCodexBinary()
 const require = createRequire(import.meta.url)
 const sqlWasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
@@ -104,6 +105,14 @@ function normalizeSpawnError(error) {
 
 function trimOutput(value = '', maxLength = 12000) {
   const text = String(value || '').trim()
+  if (text.length <= maxLength) {
+    return text
+  }
+  return text.slice(text.length - maxLength)
+}
+
+function appendOutputTail(current = '', chunk = '', maxLength = MAX_OUTPUT_TAIL_LENGTH) {
+  const text = `${String(current || '')}${String(chunk || '')}`
   if (text.length <= maxLength) {
     return text
   }
@@ -447,7 +456,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
 
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString()
-    stdoutRaw += text
+    stdoutRaw = appendOutputTail(stdoutRaw, text)
     stdoutBuffer += text
     const { lines, rest } = splitBufferedLines(stdoutBuffer)
     stdoutBuffer = rest
@@ -472,7 +481,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
 
   child.stderr.on('data', (chunk) => {
     const text = chunk.toString()
-    stderrRaw += text
+    stderrRaw = appendOutputTail(stderrRaw, text)
     stderrBuffer += text
     const { lines, rest } = splitBufferedLines(stderrBuffer)
     stderrBuffer = rest
