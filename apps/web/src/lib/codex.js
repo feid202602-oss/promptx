@@ -20,10 +20,10 @@ function resolveImageUrl(content = '', rawUrl = '') {
   }
 }
 
-function buildCodexBody(document, rawUrl) {
+function buildCodexTaskBody(task, rawTaskUrl) {
   const parts = []
 
-  for (const [index, block] of (document?.blocks || []).entries()) {
+  for (const [index, block] of (task?.blocks || []).entries()) {
     if (block.type === BLOCK_TYPES.TEXT || block.type === BLOCK_TYPES.IMPORTED_TEXT) {
       const text = String(block.content || '').trim()
       if (text) {
@@ -33,7 +33,7 @@ function buildCodexBody(document, rawUrl) {
     }
 
     if (block.type === BLOCK_TYPES.IMAGE) {
-      const imageUrl = resolveImageUrl(block.content, rawUrl)
+      const imageUrl = resolveImageUrl(block.content, rawTaskUrl)
       if (imageUrl) {
         parts.push(imageUrl, '')
       }
@@ -43,6 +43,6 @@ function buildCodexBody(document, rawUrl) {
   return parts.join('\n').trim()
 }
 
-export function buildCodexPrompt(document, rawUrl) {
-  return buildCodexBody(document, rawUrl)
+export function buildCodexPrompt(task, rawTaskUrl) {
+  return buildCodexTaskBody(task, rawTaskUrl)
 }

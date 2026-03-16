@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PromptX ZenTao Extension",
   "version": "0.0.1",
-  "description": "在禅道 Bug 详情页一键生成 PromptX 链接。",
+  "description": "在禅道 Bug 详情页一键创建 PromptX 任务。",
   "host_permissions": [
     "http://*/*",
     "https://*/*"

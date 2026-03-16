@@ -887,7 +887,7 @@ function sendRuntimeMessage(message) {
         return
       }
       if (!response?.ok) {
-        reject(new Error(response?.error || '生成 PromptX 链接失败。'))
+        reject(new Error(response?.error || '创建 PromptX 任务失败。'))
         return
       }
       resolve(response)
@@ -956,7 +956,7 @@ function createRoot() {
 function render(refs) {
   refs.button.textContent = refs.state.busy ? '生成中...' : refs.state.error ? '重试 AI修复' : 'AI修复'
   refs.button.disabled = refs.state.busy
-  refs.button.title = refs.state.error ? '生成失败，请重试' : '创建 PromptX 编辑页'
+  refs.button.title = refs.state.error ? '生成失败，请重试' : '创建 PromptX 任务'
 }
 
 async function handleCreate(refs) {
@@ -971,13 +971,13 @@ async function handleCreate(refs) {
     }
 
     const result = await sendRuntimeMessage({
-      type: 'CREATE_TMPPROMPT_FROM_ZENTAO',
+      type: 'CREATE_PROMPTX_TASK_FROM_ZENTAO',
       payload,
     })
-    window.open(result.editUrl, '_blank', 'noopener,noreferrer')
+    window.open(result.editUrl || result.taskUrl, '_blank', 'noopener,noreferrer')
   } catch (error) {
     refs.state.error = true
-    console.error('[promptx] 生成 PromptX 文档失败', error)
+    console.error('[promptx] 创建 PromptX 任务失败', error)
   } finally {
     refs.state.busy = false
     render(refs)

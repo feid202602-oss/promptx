@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "node -e \"console.log('web: nothing to lint')\""
+    "lint": "node -e \"console.log('web: nothing to lint')\"",
+    "test": "node --test src/**/*.test.js"
   },
   "dependencies": {
     "@promptx/shared": "workspace:*",

@@ -1,6 +1,6 @@
 # PromptX ZenTao Extension
 
-一个最小可用的 Chrome Manifest V3 插件：在禅道 Bug 详情页右下角插入“AI修复”按钮，一键把当前页面的关键信息整理成 `promptx` 文档并打开编辑页。
+一个最小可用的 Chrome Manifest V3 插件：在禅道 Bug 详情页右下角插入“AI修复”按钮，一键把当前页面的关键信息整理成 PromptX 任务并打开工作台。
 
 ## 当前能力
 
@@ -8,8 +8,8 @@
 - 支持在 iframe 内识别禅道 Bug 详情正文
 - 提取正文文本并转成普通文本块
 - 抓取正文图片并转存到 `promptx` 自己的上传服务
-- 调用 `promptx` 接口自动创建文档
-- 生成后直接打开 PromptX 编辑页
+- 调用 `promptx` 接口自动创建任务
+- 生成后直接打开 PromptX 工作台并定位到该任务
 
 ## 使用方式
 

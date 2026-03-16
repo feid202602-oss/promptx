@@ -287,7 +287,7 @@ async function renderPage(page, scale) {
   }
 }
 
-export async function importPdfDocument(buffer, options = {}) {
+export async function importPdfBlocks(buffer, options = {}) {
   const { uploadsDir } = options
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(buffer),

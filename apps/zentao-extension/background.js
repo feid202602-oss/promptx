@@ -2,13 +2,13 @@ const APP_ORIGIN = 'http://localhost:5173'
 const API_ORIGIN = 'http://localhost:3000'
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== 'CREATE_TMPPROMPT_FROM_ZENTAO') {
+  if (message?.type !== 'CREATE_PROMPTX_TASK_FROM_ZENTAO') {
     return false
   }
 
-  createTmppromptDocument(message.payload)
+  createPromptxTask(message.payload)
     .then((result) => sendResponse({ ok: true, ...result }))
-    .catch((error) => sendResponse({ ok: false, error: error.message || '生成 PromptX 链接失败。' }))
+    .catch((error) => sendResponse({ ok: false, error: error.message || '创建 PromptX 任务失败。' }))
 
   return true
 })
@@ -44,7 +44,7 @@ function getFileNameFromUrl(url = '', mimeType = '') {
   return `zentao-image.${fallbackExt}`
 }
 
-function buildDocumentContent(payload = {}) {
+function buildTaskContent(payload = {}) {
   const lines = []
 
   if (Array.isArray(payload.metaPairs) && payload.metaPairs.length) {
@@ -127,7 +127,7 @@ function buildBlocksFromPayload(payload = {}) {
     return blocks
   }
 
-  const fallbackContent = buildDocumentContent(payload)
+  const fallbackContent = buildTaskContent(payload)
   return [
     {
       type: 'text',
@@ -137,7 +137,7 @@ function buildBlocksFromPayload(payload = {}) {
   ]
 }
 
-async function transferImageToTmpprompt(settings, imageUrl) {
+async function transferImageToPromptx(settings, imageUrl) {
   const sourceResponse = await fetch(imageUrl, {
     credentials: 'include',
   })
@@ -158,6 +158,140 @@ async function transferImageToTmpprompt(settings, imageUrl) {
   return uploaded.url
 }
 
+function isLikelyImageReference(url = '', line = '') {
+  const normalizedUrl = String(url || '').trim()
+  const normalizedLine = String(line || '').trim()
+
+  if (!normalizedUrl) {
+    return false
+  }
+
+  if (/^\[图片\]/.test(normalizedLine) || /^!\[[^\]]*]\(https?:\/\/[^)]+\)$/.test(normalizedLine)) {
+    return true
+  }
+
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(normalizedUrl)) {
+    return true
+  }
+
+  return /\/(file-read|file-download)-/i.test(normalizedUrl)
+    || /[?&]m=file&f=(read|download)\b/i.test(normalizedUrl)
+    || /\/api\.php\?m=file\b/i.test(normalizedUrl)
+}
+
+function extractImageReference(line = '') {
+  const trimmed = String(line || '').trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const markdownMatch = trimmed.match(/^!\[(?<caption>[^\]]*)\]\((?<url>https?:\/\/[^)]+)\)$/)
+  if (markdownMatch?.groups?.url) {
+    return {
+      url: markdownMatch.groups.url,
+      caption: String(markdownMatch.groups.caption || '').trim(),
+    }
+  }
+
+  const taggedMatch = trimmed.match(/^\[图片\]\s*(?<caption>.*?)(?:[:：]\s*)?(?<url>https?:\/\/\S+)$/)
+  if (taggedMatch?.groups?.url) {
+    return {
+      url: taggedMatch.groups.url,
+      caption: String(taggedMatch.groups.caption || '').replace(/[:：]\s*$/, '').trim(),
+    }
+  }
+
+  const urlMatches = trimmed.match(/https?:\/\/[^\s)]+/ig) || []
+  if (urlMatches.length !== 1) {
+    return null
+  }
+
+  const url = urlMatches[0]
+  if (!isLikelyImageReference(url, trimmed)) {
+    return null
+  }
+
+  const prefix = trimmed
+    .slice(0, trimmed.indexOf(url))
+    .replace(/^\[图片\]\s*/, '')
+    .replace(/[:：-]\s*$/, '')
+    .trim()
+  const suffix = trimmed
+    .slice(trimmed.indexOf(url) + url.length)
+    .replace(/^[)\]】】\s]+/, '')
+    .trim()
+
+  if (suffix) {
+    return null
+  }
+
+  return {
+    url,
+    caption: prefix,
+  }
+}
+
+function pushTextBlock(blocks, content, meta = {}) {
+  const value = String(content || '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  if (!value) {
+    return
+  }
+
+  blocks.push({
+    type: 'text',
+    content: value,
+    meta: { ...meta },
+  })
+}
+
+async function expandTextBlockWithHostedImages(settings, block) {
+  const content = String(block?.content || '')
+  if (!content.trim()) {
+    return []
+  }
+
+  const lines = content.split('\n')
+  const normalized = []
+  let textBuffer = []
+
+  const flushText = () => {
+    if (!textBuffer.length) {
+      return
+    }
+    pushTextBlock(normalized, textBuffer.join('\n'), block.meta || {})
+    textBuffer = []
+  }
+
+  for (const rawLine of lines) {
+    const reference = extractImageReference(rawLine)
+    if (!reference?.url) {
+      textBuffer.push(rawLine)
+      continue
+    }
+
+    try {
+      const hostedUrl = await transferImageToPromptx(settings, reference.url)
+      flushText()
+      if (reference.caption) {
+        pushTextBlock(normalized, reference.caption, block.meta || {})
+      }
+      normalized.push({
+        type: 'image',
+        content: hostedUrl,
+        meta: {},
+      })
+    } catch {
+      textBuffer.push(rawLine)
+    }
+  }
+
+  flushText()
+  return normalized.length ? normalized : [block]
+}
+
 async function normalizeBlocksWithHostedImages(settings, blocks = []) {
   const normalized = []
 
@@ -167,12 +301,13 @@ async function normalizeBlocksWithHostedImages(settings, blocks = []) {
     }
 
     if (block.type !== 'image') {
-      normalized.push(block)
+      const expandedBlocks = await expandTextBlockWithHostedImages(settings, block)
+      normalized.push(...expandedBlocks)
       continue
     }
 
     try {
-      const hostedUrl = await transferImageToTmpprompt(settings, block.content)
+      const hostedUrl = await transferImageToPromptx(settings, block.content)
       normalized.push({
         ...block,
         content: hostedUrl,
@@ -185,7 +320,7 @@ async function normalizeBlocksWithHostedImages(settings, blocks = []) {
   return normalized
 }
 
-async function createTmppromptDocument(payload = {}) {
+async function createPromptxTask(payload = {}) {
   const title = String(payload.title || '').trim() || '禅道 Bug'
   const blocks = await normalizeBlocksWithHostedImages(
     {
@@ -195,38 +330,38 @@ async function createTmppromptDocument(payload = {}) {
     buildBlocksFromPayload(payload)
   )
 
-  const created = await fetch(`${API_ORIGIN}/api/documents`, {
+  const created = await fetch(`${API_ORIGIN}/api/tasks`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       title,
-      expiry: '24h',
-      visibility: 'listed',
+      expiry: 'none',
+      visibility: 'private',
     }),
   }).then(readJson)
 
-  await fetch(`${API_ORIGIN}/api/documents/${created.slug}`, {
+  await fetch(`${API_ORIGIN}/api/tasks/${created.slug}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       title,
-      expiry: '24h',
-      visibility: 'listed',
+      expiry: 'none',
+      visibility: 'private',
       blocks,
     }),
   }).then(readJson)
 
-  const publicUrl = `${APP_ORIGIN}/p/${created.slug}`
-  const rawUrl = `${API_ORIGIN}/p/${created.slug}/raw`
+  const rawUrl = `${API_ORIGIN}/api/tasks/${created.slug}/raw`
+  const taskUrl = `${APP_ORIGIN}/?task=${encodeURIComponent(created.slug)}`
 
   return {
-    publicUrl,
+    taskUrl,
     rawUrl,
-    editUrl: `${APP_ORIGIN}/edit/${created.slug}`,
-    promptText: `请先阅读这个需求文档，再继续开发：\n${rawUrl}`,
+    editUrl: taskUrl,
+    promptText: `请先阅读这份任务内容，再继续开发：\n${rawUrl}`,
   }
 }

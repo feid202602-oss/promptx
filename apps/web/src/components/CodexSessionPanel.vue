@@ -1,6 +1,6 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
+  ArrowDown,
   Bot,
   CircleAlert,
   LoaderCircle,
@@ -9,14 +9,7 @@ import {
 } from 'lucide-vue-next'
 import CodexSessionManagerDialog from './CodexSessionManagerDialog.vue'
 import CodexSessionSelect from './CodexSessionSelect.vue'
-import {
-  createCodexSession,
-  deleteCodexSession,
-  listCodexSessions,
-  listCodexWorkspaces,
-  streamPromptToCodexSession,
-  updateCodexSession,
-} from '../lib/api.js'
+import { useCodexSessionPanel } from '../composables/useCodexSessionPanel.js'
 
 const emit = defineEmits(['selected-session-change', 'sending-change'])
 
@@ -33,779 +26,62 @@ const props = defineProps({
     type: Function,
     default: null,
   },
-  storageKey: {
+  afterSend: {
+    type: Function,
+    default: null,
+  },
+  taskSlug: {
     type: String,
-    default: 'promptx:codex-session-id',
+    default: '',
+  },
+  selectedSessionId: {
+    type: String,
+    default: '',
+  },
+  active: {
+    type: Boolean,
+    default: false,
   },
 })
 
-const sessions = ref([])
-const workspaces = ref([])
-const loading = ref(false)
-const managerBusy = ref(false)
-const sending = ref(false)
-const sessionError = ref('')
-const turns = ref([])
-const currentController = ref(null)
-const selectedSessionId = ref('')
-const transcriptRef = ref(null)
-const sendingStartedAt = ref(0)
-const sendingElapsedSeconds = ref(0)
-const showManager = ref(false)
-
-let turnId = 0
-let logId = 0
-let sendingTimer = null
-let sessionsLoadPromise = null
-let lastSessionsLoadedAt = 0
-
-const SESSION_REFRESH_TTL = 1500
-
-const hasPrompt = computed(() => {
-  if (typeof props.buildPrompt === 'function') {
-    return true
-  }
-  return Boolean(String(props.prompt || '').trim())
-})
-
-const hasSessions = computed(() => sessions.value.length > 0)
-const sortedSessions = computed(() => sortSessions(sessions.value))
-const selectedSession = computed(() => sessions.value.find((session) => session.id === selectedSessionId.value) || null)
-const helperText = computed(() => {
-  if (!hasSessions.value) {
-    return '还没有 PromptX 会话，请先在管理弹窗里新建一个固定工作目录。'
-  }
-  return ''
-})
-const workingLabel = computed(() => `处理中 (${sendingElapsedSeconds.value}s)`)
-
-function getDateOrderValue(value = '') {
-  const timestamp = Date.parse(String(value || ''))
-  return Number.isFinite(timestamp) ? timestamp : 0
-}
-
-function isSessionRunning(sessionId) {
-  return Boolean(sessions.value.find((session) => session.id === sessionId)?.running)
-}
-
-function isCurrentSession(sessionId) {
-  return Boolean(sessionId) && sessionId === selectedSessionId.value
-}
-
-function sortSessions(items = []) {
-  return [...items].sort((left, right) => {
-    const runningDiff = Number(isSessionRunning(right.id)) - Number(isSessionRunning(left.id))
-    if (runningDiff) {
-      return runningDiff
-    }
-
-    const currentDiff = Number(isCurrentSession(right.id)) - Number(isCurrentSession(left.id))
-    if (currentDiff) {
-      return currentDiff
-    }
-
-    const updatedDiff = getDateOrderValue(right.updatedAt) - getDateOrderValue(left.updatedAt)
-    if (updatedDiff) {
-      return updatedDiff
-    }
-
-    return String(left.title || left.cwd || left.id).localeCompare(String(right.title || right.cwd || right.id), 'zh-CN')
-  })
-}
-
-function clearSendingTimer() {
-  if (sendingTimer) {
-    window.clearInterval(sendingTimer)
-    sendingTimer = null
-  }
-}
-
-function startSendingTimer() {
-  sendingStartedAt.value = Date.now()
-  sendingElapsedSeconds.value = 0
-  clearSendingTimer()
-  sendingTimer = window.setInterval(() => {
-    sendingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - sendingStartedAt.value) / 1000))
-  }, 1000)
-}
-
-
-function formatTurnTime(value = '') {
-  if (!value) {
-    return ''
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-
-  return date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-}
-
-
-function normalizeLogEntry(entry) {
-  if (!entry) {
-    return null
-  }
-
-  if (typeof entry === 'string') {
-    const text = entry.trim()
-    if (!text) {
-      return null
-    }
-    return {
-      id: ++logId,
-      kind: 'info',
-      title: text,
-      detail: '',
-    }
-  }
-
-  const title = String(entry.title || '').trim()
-  const detail = String(entry.detail || '').trim()
-  if (!title && !detail) {
-    return null
-  }
-
-  return {
-    id: ++logId,
-    kind: entry.kind || 'info',
-    title: title || detail,
-    detail: title ? detail : '',
-  }
-}
-
-function scheduleScrollToBottom() {
-  nextTick(() => {
-    if (!transcriptRef.value) {
-      return
-    }
-
-    const scrollToBottom = () => {
-      if (!transcriptRef.value) {
-        return
-      }
-      transcriptRef.value.scrollTop = transcriptRef.value.scrollHeight
-    }
-
-    scrollToBottom()
-    requestAnimationFrame(() => {
-      scrollToBottom()
-      requestAnimationFrame(scrollToBottom)
-    })
-  })
-}
-
-function appendTurnEvent(turn, entry) {
-  const normalized = normalizeLogEntry(entry)
-  if (!normalized) {
-    return
-  }
-
-  turn.events.push(normalized)
-  if (turn.events.length > 120) {
-    turn.events.splice(0, turn.events.length - 120)
-  }
-  scheduleScrollToBottom()
-}
-
-function formatCommandOutput(output = '', limit = 500) {
-  const text = String(output || '').trim()
-  if (!text) {
-    return ''
-  }
-  if (text.length <= limit) {
-    return text
-  }
-  return `${text.slice(0, limit)}...`
-}
-
-function formatTodoItems(items = []) {
-  const list = Array.isArray(items) ? items : []
-  if (!list.length) {
-    return ''
-  }
-
-  return list
-    .map((item) => `${item.completed ? '[x]' : '[ ]'} ${item.text || '未命名任务'}`)
-    .join('\n')
-}
-
-function formatCodexEvent(event = {}) {
-  const eventType = String(event.type || '').trim()
-  const item = event.item || {}
-
-  if (!eventType) {
-    return {
-      title: '收到 Codex 事件',
-      detail: '',
-    }
-  }
-
-  if (eventType === 'thread.started') {
-    return {
-      title: 'Codex 线程已创建',
-      detail: event.thread_id ? `线程 ID：${event.thread_id}` : '',
-    }
-  }
-
-  if (eventType === 'turn.started') {
-    return {
-      title: 'Codex 开始执行',
-      detail: '',
-    }
-  }
-
-  if (eventType === 'turn.completed') {
-    const usage = event.usage
-      ? `输入 ${event.usage.input_tokens || 0} / 输出 ${event.usage.output_tokens || 0}`
-      : ''
-    return {
-      title: 'Codex 执行完成',
-      detail: usage,
-    }
-  }
-
-  if (eventType === 'item.started') {
-    if (item.type === 'command_execution') {
-      return {
-        kind: 'command',
-        title: '开始执行命令',
-        detail: item.command || '',
-      }
-    }
-
-    if (item.type === 'todo_list') {
-      return {
-        kind: 'todo',
-        title: '更新待办列表',
-        detail: formatTodoItems(item.items),
-      }
-    }
-
-    return {
-      title: `开始处理 ${item.type || '未知项目'}`,
-      detail: '',
-    }
-  }
-
-  if (eventType === 'item.updated' && item.type === 'todo_list') {
-    return {
-      kind: 'todo',
-      title: '更新待办列表',
-      detail: formatTodoItems(item.items),
-    }
-  }
-
-  if (eventType === 'item.completed') {
-    if (item.type === 'agent_message' && item.text) {
-      return {
-        kind: 'result',
-        title: 'Codex 已返回结果',
-        detail: '',
-      }
-    }
-
-    if (item.type === 'command_execution') {
-      const success = item.exit_code === 0 || item.status === 'completed'
-      return {
-        kind: success ? 'command' : 'error',
-        title: success ? '命令执行完成' : `命令执行失败（exit ${item.exit_code ?? '?'}）`,
-        detail: [item.command, formatCommandOutput(item.aggregated_output)].filter(Boolean).join('\n\n'),
-      }
-    }
-
-    if (item.type === 'todo_list') {
-      return {
-        kind: 'todo',
-        title: '更新待办列表',
-        detail: formatTodoItems(item.items),
-      }
-    }
-
-    return {
-      title: `完成 ${item.type || '未知项目'}`,
-      detail: '',
-    }
-  }
-
-  return {
-    title: `事件：${eventType}`,
-    detail: '',
-  }
-}
-
-function createTurn(promptText) {
-  const turn = reactive({
-    id: ++turnId,
-    prompt: String(promptText || '').trim(),
-    status: 'running',
-    startedAt: new Date().toISOString(),
-    events: [],
-    responseMessage: '',
-    errorMessage: '',
-  })
-  turns.value.push(turn)
-  scheduleScrollToBottom()
-  return turn
-}
-
-function getProcessStatus(turn) {
-  if (turn.status === 'running') {
-    return '进行中'
-  }
-  if (turn.status === 'error') {
-    return '失败'
-  }
-  if (turn.status === 'stopped') {
-    return '已停止'
-  }
-  return '已完成'
-}
-
-function getProcessCardClass(turn) {
-  if (turn.status === 'error') {
-    return 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/30 dark:text-red-100'
-  }
-  if (turn.status === 'stopped') {
-    return 'border-stone-300 bg-stone-100 text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200'
-  }
-  if (turn.status === 'completed') {
-    return 'border-stone-300 bg-white text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300'
-  }
-  return 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100'
-}
-
-function shouldShowResponse(turn) {
-  return Boolean(turn.responseMessage || turn.errorMessage || turn.status === 'completed')
-}
-
-function mergeSession(nextSession) {
-  if (!nextSession?.id) {
-    return
-  }
-
-  const nextList = [...sessions.value]
-  const index = nextList.findIndex((item) => item.id === nextSession.id)
-  if (index >= 0) {
-    nextList[index] = nextSession
-  } else {
-    nextList.unshift(nextSession)
-  }
-  sessions.value = nextList
-}
-
-function handleStreamEvent(payload = {}, turn) {
-  if (payload.type === 'session') {
-    mergeSession(payload.session)
-    appendTurnEvent(turn, {
-      title: `已连接 PromptX 会话：${payload.session?.title || '未命名会话'}`,
-      detail: payload.session?.cwd ? `工作目录：${payload.session.cwd}` : '',
-    })
-    return
-  }
-
-  if (payload.type === 'session.updated') {
-    mergeSession(payload.session)
-    appendTurnEvent(turn, {
-      title: '会话线程已更新',
-      detail: payload.session?.started ? '后续请求会继续复用当前 PromptX 会话。' : '',
-    })
-    return
-  }
-
-  if (payload.type === 'status') {
-    appendTurnEvent(turn, {
-      title: payload.message || '状态已更新',
-      detail: '',
-    })
-    return
-  }
-
-  if (payload.type === 'stderr') {
-    appendTurnEvent(turn, {
-      kind: 'error',
-      title: 'stderr',
-      detail: payload.text,
-    })
-    return
-  }
-
-  if (payload.type === 'stdout') {
-    appendTurnEvent(turn, {
-      kind: 'command',
-      title: 'stdout',
-      detail: payload.text,
-    })
-    return
-  }
-
-  if (payload.type === 'codex') {
-    appendTurnEvent(turn, formatCodexEvent(payload.event))
-    if (payload.event?.type === 'item.completed' && payload.event?.item?.type === 'agent_message' && payload.event?.item?.text) {
-      turn.responseMessage = payload.event.item.text
-    }
-    return
-  }
-
-  if (payload.type === 'completed') {
-    turn.status = 'completed'
-    if (payload.message) {
-      turn.responseMessage = payload.message
-    }
-    if (!turn.responseMessage) {
-      turn.responseMessage = '本轮 Codex 执行已完成，没有返回额外文本。'
-    }
-    appendTurnEvent(turn, {
-      kind: 'result',
-      title: '本轮执行结束',
-      detail: '',
-    })
-    return
-  }
-
-  if (payload.type === 'error') {
-    turn.status = 'error'
-    turn.errorMessage = payload.message || 'Codex 执行失败'
-    appendTurnEvent(turn, {
-      kind: 'error',
-      title: '执行失败',
-      detail: turn.errorMessage,
-    })
-  }
-}
-
-function hydrateSelectedSession() {
-  if (!props.storageKey) {
-    selectedSessionId.value = ''
-    return
-  }
-
-  const saved = window.localStorage.getItem(props.storageKey)
-  selectedSessionId.value = saved || ''
-}
-
-function persistSelectedSession(sessionId) {
-  if (!props.storageKey) {
-    return
-  }
-
-  if (sessionId) {
-    window.localStorage.setItem(props.storageKey, sessionId)
-  } else {
-    window.localStorage.removeItem(props.storageKey)
-  }
-}
-
-async function loadSessions() {
-  if (sessionsLoadPromise) {
-    return sessionsLoadPromise
-  }
-
-  const now = Date.now()
-  if (lastSessionsLoadedAt && now - lastSessionsLoadedAt < SESSION_REFRESH_TTL) {
-    return {
-      items: sessions.value,
-      workspaces: workspaces.value,
-    }
-  }
-
-  sessionsLoadPromise = (async () => {
-    loading.value = true
-    sessionError.value = ''
-
-    try {
-      const [sessionPayload, workspacePayload] = await Promise.all([
-        listCodexSessions(),
-        listCodexWorkspaces(),
-      ])
-      const nextSessions = sessionPayload.items || []
-
-      sessions.value = nextSessions
-      workspaces.value = workspacePayload.items || []
-      lastSessionsLoadedAt = Date.now()
-
-      if (selectedSessionId.value && nextSessions.some((session) => session.id === selectedSessionId.value)) {
-        return {
-          items: nextSessions,
-          workspaces: workspaces.value,
-        }
-      }
-
-      if (selectedSessionId.value) {
-        selectedSessionId.value = ''
-      }
-
-      return {
-        items: nextSessions,
-        workspaces: workspaces.value,
-      }
-    } catch (err) {
-      sessionError.value = err.message
-      throw err
-    } finally {
-      loading.value = false
-      sessionsLoadPromise = null
-    }
-  })()
-
-  return sessionsLoadPromise
-}
-
-function upsertWorkspace(cwd = '') {
-  const normalized = String(cwd || '').trim()
-  if (!normalized || workspaces.value.includes(normalized)) {
-    return
-  }
-  workspaces.value = [normalized, ...workspaces.value]
-}
-
-function openManager() {
-  showManager.value = true
-}
-
-function closeManager() {
-  showManager.value = false
-}
-
-function handleSelectSession(sessionId) {
-  selectedSessionId.value = String(sessionId || '').trim()
-}
-
-function refreshSessionsForSelection() {
-  loadSessions().catch(() => {})
-}
-
-async function handleCreateSession(payload) {
-  managerBusy.value = true
-  sessionError.value = ''
-
-  try {
-    const session = await createCodexSession(payload)
-    mergeSession(session)
-    upsertWorkspace(session.cwd)
-    selectedSessionId.value = session.id
-    return session
-  } catch (err) {
-    sessionError.value = err.message
-    throw err
-  } finally {
-    managerBusy.value = false
-  }
-}
-
-async function handleUpdateSession(sessionId, payload) {
-  managerBusy.value = true
-  sessionError.value = ''
-
-  try {
-    const session = await updateCodexSession(sessionId, payload)
-    mergeSession(session)
-    upsertWorkspace(session.cwd)
-    return session
-  } catch (err) {
-    sessionError.value = err.message
-    throw err
-  } finally {
-    managerBusy.value = false
-  }
-}
-
-async function handleDeleteSession(sessionId) {
-  const targetId = String(sessionId || '').trim()
-  if (!targetId) {
-    return {
-      deletedSessionId: '',
-      selectedSessionId: selectedSessionId.value,
-    }
-  }
-
-  managerBusy.value = true
-  sessionError.value = ''
-
-  try {
-    await deleteCodexSession(targetId)
-    const remainingSessions = sessions.value.filter((session) => session.id !== targetId)
-    sessions.value = remainingSessions
-
-    let nextSelectedSessionId = selectedSessionId.value
-    if (selectedSessionId.value === targetId) {
-      nextSelectedSessionId = sortSessions(remainingSessions)[0]?.id || ''
-      selectedSessionId.value = nextSelectedSessionId
-    }
-
-    return {
-      deletedSessionId: targetId,
-      selectedSessionId: nextSelectedSessionId,
-    }
-  } catch (err) {
-    sessionError.value = err.message
-    throw err
-  } finally {
-    managerBusy.value = false
-  }
-}
-
-async function handleSend() {
-  if (!hasPrompt.value || sending.value) {
-    return false
-  }
-
-  if (!selectedSessionId.value) {
-    openManager()
-    sessionError.value = '请先选择一个 PromptX 会话。'
-    return false
-  }
-
-  sessionError.value = ''
-
-  try {
-    await loadSessions()
-
-    const latestSelectedSession = sessions.value.find((session) => session.id === selectedSessionId.value) || null
-    if (!latestSelectedSession) {
-      sessionError.value = '当前会话不存在，请重新选择。'
-      return false
-    }
-
-    if (latestSelectedSession.running) {
-      sessionError.value = '当前会话正在执行中，请等待完成后再发送。'
-      return false
-    }
-
-    if (typeof props.beforeSend === 'function') {
-      const ready = await props.beforeSend()
-      if (ready === false) {
-        return false
-      }
-    }
-
-    const prompt = typeof props.buildPrompt === 'function'
-      ? await props.buildPrompt()
-      : props.prompt
-
-    if (!String(prompt || '').trim()) {
-      sessionError.value = '没有可发送的提示词。'
-      return false
-    }
-
-    const session = sessions.value.find((item) => item.id === selectedSessionId.value) || null
-    if (!session) {
-      sessionError.value = '当前会话不存在，请重新选择。'
-      return false
-    }
-
-    sending.value = true
-    const controller = new AbortController()
-    const turn = createTurn(prompt)
-    currentController.value = controller
-
-    ;(async () => {
-      try {
-        await streamPromptToCodexSession(selectedSessionId.value, {
-          prompt,
-        }, {
-          signal: controller.signal,
-          onEvent(payload) {
-            handleStreamEvent(payload, turn)
-          },
-        })
-      } catch (err) {
-        if (err.name === 'AbortError') {
-          turn.status = 'stopped'
-          appendTurnEvent(turn, {
-            title: '执行已手动停止',
-            detail: '',
-          })
-        } else {
-          turn.status = 'error'
-          turn.errorMessage = err.message
-          appendTurnEvent(turn, {
-            kind: 'error',
-            title: '执行失败',
-            detail: turn.errorMessage,
-          })
-        }
-      } finally {
-        sending.value = false
-        currentController.value = null
-      }
-    })()
-
-    return true
-  } catch (err) {
-    sessionError.value = err.message
-    return false
-  }
-}
-
-function stopSending() {
-  currentController.value?.abort()
-}
-
-function clearTurns() {
-  turns.value = []
-}
-
-watch(
+const {
+  clearTurns,
+  closeManager,
+  formatTurnTime,
+  getProcessCardClass,
+  getProcessStatus,
+  handleCreateSession,
+  handleDeleteSession,
+  handleSelectSession,
+  handleSend,
+  handleTranscriptScroll,
+  handleUpdateSession,
+  helperText,
+  loading,
+  managerBusy,
+  openManager,
+  refreshSessionsForSelection,
+  selectedSessionId,
   sending,
-  (value) => {
-    if (value) {
-      startSendingTimer()
-      scheduleScrollToBottom()
-    } else {
-      clearSendingTimer()
-      sendingStartedAt.value = 0
-      sendingElapsedSeconds.value = 0
-    }
-    emit('sending-change', value)
-  },
-  { immediate: true }
-)
-
-watch(selectedSessionId, persistSelectedSession)
-
-watch(
-  selectedSession,
-  (session) => {
-    emit('selected-session-change', session || null)
-  },
-  { immediate: true }
-)
-
-watch(
-  () => props.storageKey,
-  () => {
-    hydrateSelectedSession()
-    loadSessions().catch(() => {})
-  }
-)
-
-watch(
+  hasNewerMessages,
+  sessionError,
+  shouldShowResponse,
+  showManager,
+  sortedSessions,
+  stopSending,
+  transcriptRef,
   turns,
-  () => {
-    scheduleScrollToBottom()
-  },
-  { deep: true, flush: 'post' }
-)
+  workspaces,
+  workingLabel,
+  sessions,
+  loadSessions,
+  scrollToBottom,
+} = useCodexSessionPanel(props, emit)
 
 defineExpose({
   send: handleSend,
+  scrollToBottom,
   stop: stopSending,
-})
-
-onMounted(() => {
-  hydrateSelectedSession()
-  loadSessions().catch(() => {})
-})
-
-onBeforeUnmount(() => {
-  clearSendingTimer()
 })
 </script>
 
@@ -826,13 +102,13 @@ onBeforeUnmount(() => {
       @select-session="handleSelectSession"
     />
 
-    <div class="border-b border-stone-300 bg-stone-50/80 p-3 dark:border-stone-700 dark:bg-stone-900/80">
+    <div class="border-b border-stone-300 bg-stone-50/80 p-3 dark:border-[#342d29] dark:bg-[#221d1a]">
       <div class="flex flex-col gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <div class="min-w-0 shrink-0">
             <div class="flex items-center gap-2 text-sm font-medium text-stone-900 dark:text-stone-100">
               <Bot class="h-4 w-4" />
-              <span>PromptX 会话</span>
+              <span>会话</span>
             </div>
             <p v-if="helperText" class="mt-1 text-xs text-stone-500 dark:text-stone-400">{{ helperText }}</p>
           </div>
@@ -840,7 +116,7 @@ onBeforeUnmount(() => {
           <div class="ml-auto flex items-center gap-2">
             <button
               type="button"
-              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
+              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs dark:border-[#4c423c] dark:bg-[#2b2521] dark:hover:bg-[#342d28]"
               :disabled="sending"
               @click="clearTurns"
             >
@@ -848,7 +124,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs"
+              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs dark:border-[#5a4d45] dark:bg-[#342d28] dark:text-stone-100 dark:hover:bg-[#3d3530]"
               :disabled="sending || managerBusy"
               @click="openManager"
             >
@@ -879,17 +155,17 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="min-h-0 flex-1">
-      <div ref="transcriptRef" class="h-full space-y-4 overflow-y-auto px-4 py-4">
+      <div ref="transcriptRef" class="h-full space-y-4 overflow-y-auto px-4 py-4" @scroll="handleTranscriptScroll">
         <div
           v-if="!turns.length"
-          class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400"
+          class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500 dark:border-[#544941] dark:bg-[#2d2723] dark:text-stone-400"
         >
           这里会显示会话执行过程和 Codex 回复。
         </div>
 
         <div v-for="turn in turns" :key="turn.id" class="space-y-3">
           <div class="flex justify-end">
-            <div class="min-w-0 w-full max-w-[92%] rounded-sm border border-dashed border-stone-300 bg-stone-100 px-4 py-3 text-sm text-stone-800 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100">
+            <div class="min-w-0 w-full max-w-[92%] rounded-sm border border-dashed border-stone-300 bg-stone-100 px-4 py-3 text-sm text-stone-800 dark:border-[#544941] dark:bg-[#322b26] dark:text-stone-100">
               <div class="flex items-center justify-between gap-3 text-xs text-stone-500 dark:text-stone-400">
                 <span>本轮提示词</span>
                 <span>{{ formatTurnTime(turn.startedAt) }}</span>
@@ -910,10 +186,10 @@ onBeforeUnmount(() => {
                   :key="item.id"
                   class="rounded-sm border border-dashed px-3 py-2"
                   :class="{
-                    'border-stone-300/70 bg-white/70 dark:border-stone-700 dark:bg-stone-950/60': item.kind === 'info' || item.kind === 'command',
-                    'border-amber-300/70 bg-amber-100/60 dark:border-amber-800 dark:bg-amber-950/40': item.kind === 'todo',
-                    'border-emerald-300/70 bg-emerald-100/60 dark:border-emerald-800 dark:bg-emerald-950/40': item.kind === 'result',
-                    'border-red-300/70 bg-red-100/60 dark:border-red-800 dark:bg-red-950/40': item.kind === 'error',
+                    'border-stone-300/70 bg-white/70 dark:border-[#453c36] dark:bg-[#26211d]': item.kind === 'info' || item.kind === 'command',
+                    'border-amber-300/70 bg-amber-100/60 dark:border-[#7f6949] dark:bg-[#392f20]': item.kind === 'todo',
+                    'border-emerald-300/70 bg-emerald-100/60 dark:border-[#5b7562] dark:bg-[#243228]': item.kind === 'result',
+                    'border-red-300/70 bg-red-100/60 dark:border-[#7b4f4a] dark:bg-[#372321]': item.kind === 'error',
                   }"
                 >
                   <div class="font-medium">{{ item.title }}</div>
@@ -928,8 +204,8 @@ onBeforeUnmount(() => {
             <div
               class="min-w-0 w-full max-w-[92%] rounded-sm border border-dashed px-4 py-3 text-sm leading-7"
               :class="turn.errorMessage
-                ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/30 dark:text-red-100'
-                : 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'"
+                ? 'border-red-300 bg-red-50 text-red-900 dark:border-[#7b4f4a] dark:bg-[#372321] dark:text-[#f0dfdc]'
+                : 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-[#5b7562] dark:bg-[#243228] dark:text-[#deecdf]'"
             >
               <div class="text-xs text-current/80">{{ turn.errorMessage ? 'Codex 错误' : 'Codex 回复' }}</div>
               <div class="mt-2 whitespace-pre-wrap break-all">{{ turn.errorMessage || turn.responseMessage }}</div>
@@ -937,11 +213,22 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+
+      <button
+        v-if="hasNewerMessages"
+        type="button"
+        class="tool-button absolute right-4 z-10 inline-flex items-center gap-2 border-stone-400 bg-stone-100/95 px-3 py-2 text-xs shadow-sm backdrop-blur dark:border-[#5a4d45] dark:bg-[#342d28]/95 dark:text-stone-100"
+        :class="sending ? 'bottom-20' : 'bottom-4'"
+        @click="scrollToBottom"
+      >
+        <ArrowDown class="h-4 w-4" />
+        <span>有新消息，跳到底部</span>
+      </button>
     </div>
 
     <div
       v-if="sending"
-      class="flex shrink-0 items-center justify-between gap-3 border-t border-dashed border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+      class="flex shrink-0 items-center justify-between gap-3 border-t border-dashed border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-[#7f6949] dark:bg-[#392f20] dark:text-[#e5ce9a]"
     >
       <div class="flex items-center gap-2">
         <LoaderCircle class="h-4 w-4 animate-spin" />

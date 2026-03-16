@@ -1,0 +1,50 @@
+const importMetaEnv = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {}
+
+function resolveDefaultApiBase() {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:3000'
+  }
+
+  const url = new URL(window.location.origin)
+  url.port = importMetaEnv.VITE_API_PORT || '3000'
+  return url.toString().replace(/\/$/, '')
+}
+
+const API_BASE = (importMetaEnv.VITE_API_BASE_URL || resolveDefaultApiBase()).replace(/\/$/, '')
+
+export async function request(path, options = {}) {
+  const hasJsonBody = typeof options.body !== 'undefined' && !(options.body instanceof FormData)
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.headers || {}),
+    },
+    ...options,
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.message || '请求失败。')
+  }
+
+  if (response.status === 204) {
+    return null
+  }
+
+  const type = response.headers.get('content-type') || ''
+  if (type.includes('application/json')) {
+    return response.json()
+  }
+  return response.text()
+}
+
+export function getApiBase() {
+  return API_BASE
+}
+
+export function resolveAssetUrl(url) {
+  if (!url) {
+    return ''
+  }
+  return url.startsWith('http') ? url : `${API_BASE}${url}`
+}

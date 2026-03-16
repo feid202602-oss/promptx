@@ -10,7 +10,7 @@ import {
 test('normalizeUploadFileName 保留基础文件名并支持回退值', () => {
   assert.equal(normalizeUploadFileName('C:\\temp\\测试文档.PDF'), '测试文档.PDF')
   assert.equal(normalizeUploadFileName(''), 'file')
-  assert.equal(normalizeUploadFileName('', 'document.pdf'), 'document.pdf')
+  assert.equal(normalizeUploadFileName('', 'task.pdf'), 'task.pdf')
 })
 
 test('getSafeTempExtension 只保留安全扩展名', () => {

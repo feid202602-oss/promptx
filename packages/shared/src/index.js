@@ -1,7 +1,7 @@
-export const EXPIRY_PRESETS = {
-  '24h': {
-    label: '24 小时',
-    hours: 24,
+﻿export const EXPIRY_PRESETS = {
+  none: {
+    label: '不过期',
+    hours: null,
   },
 }
 
@@ -11,7 +11,7 @@ export const EXPIRY_OPTIONS = Object.entries(EXPIRY_PRESETS).map(([value, preset
 }))
 
 export const VISIBILITY_OPTIONS = [
-  { value: 'listed', label: '公开列表' },
+  { value: 'private', label: '仅自己可见' },
 ]
 
 export const BLOCK_TYPES = {
@@ -23,26 +23,26 @@ export const BLOCK_TYPES = {
 export const BLOCK_TYPE_LABELS = {
   [BLOCK_TYPES.TEXT]: '文本',
   [BLOCK_TYPES.IMAGE]: '图片',
-  [BLOCK_TYPES.IMPORTED_TEXT]: '导入文档',
+  [BLOCK_TYPES.IMPORTED_TEXT]: '导入文件',
 }
 
 export function normalizeVisibility(value) {
-  return 'listed'
+  return 'private'
 }
 
 export function normalizeExpiry(value) {
-  return '24h'
+  return 'none'
 }
 
 export function getVisibilityLabel(value) {
-  return VISIBILITY_OPTIONS.find((item) => item.value === value)?.label || '公开列表'
+  return VISIBILITY_OPTIONS.find((item) => item.value === value)?.label || '仅自己可见'
 }
 
 export function getBlockTypeLabel(value) {
   return BLOCK_TYPE_LABELS[value] || '内容'
 }
 
-export function resolveExpiresAt(expiry = '24h', now = new Date()) {
+export function resolveExpiresAt(expiry = 'none', now = new Date()) {
   const preset = EXPIRY_PRESETS[normalizeExpiry(expiry)]
   if (!preset || preset.hours === null) {
     return null
@@ -53,14 +53,14 @@ export function resolveExpiresAt(expiry = '24h', now = new Date()) {
 
 export function getExpiryValue(expiresAt, now = new Date()) {
   if (!expiresAt) {
-    return '24h'
+    return 'none'
   }
 
   const diffMs = new Date(expiresAt).getTime() - now.getTime()
   if (diffMs <= 24 * 60 * 60 * 1000 + 60 * 1000) {
-    return '24h'
+    return 'none'
   }
-  return '24h'
+  return 'none'
 }
 
 export function clampText(value = '', max = 20000) {
@@ -74,7 +74,7 @@ export function slugifyTitle(title = '') {
     .replace(/^-+|-+$/g, '')
     .slice(0, 36)
 
-  return base || 'doc'
+  return base || 'task'
 }
 
 export function deriveTitleFromBlocks(blocks = [], max = 10) {
@@ -90,20 +90,20 @@ export function deriveTitleFromBlocks(blocks = [], max = 10) {
   return firstText.content.replace(/\s+/g, ' ').trim().slice(0, max)
 }
 
-export function buildRawText(document) {
+export function buildRawTaskText(task) {
   const parts = []
-  if (document.title) {
-    parts.push(`标题：${document.title}`, '')
+  if (task.title) {
+    parts.push(`标题：${task.title}`, '')
   }
 
-  for (const [index, block] of (document.blocks || []).entries()) {
+  for (const [index, block] of (task.blocks || []).entries()) {
     if (block.type === BLOCK_TYPES.TEXT || block.type === BLOCK_TYPES.IMPORTED_TEXT) {
       parts.push(block.content?.trim() || '', '')
       continue
     }
 
     if (block.type === BLOCK_TYPES.IMAGE) {
-      parts.push(`图片 ${index + 1}：`, block.content || '')
+      parts.push(`图片 ${index + 1}：${block.content || ''}`)
       parts.push('')
     }
   }
@@ -111,8 +111,8 @@ export function buildRawText(document) {
   return parts.join('\n').trim() + '\n'
 }
 
-export function summarizeDocument(document) {
-  const textBlock = (document.blocks || []).find(
+export function summarizeTask(task) {
+  const textBlock = (task.blocks || []).find(
     (block) =>
       (block.type === BLOCK_TYPES.TEXT || block.type === BLOCK_TYPES.IMPORTED_TEXT) &&
       block.content?.trim()

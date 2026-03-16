@@ -10,6 +10,7 @@ import {
 } from 'lucide-vue-next'
 import { BLOCK_TYPES } from '@promptx/shared'
 import { useMentionPicker } from '../composables/useMentionPicker.js'
+import ImagePreviewOverlay from './ImagePreviewOverlay.vue'
 import PathMentionPicker from './PathMentionPicker.vue'
 
 const props = defineProps({
@@ -38,6 +39,7 @@ const contentRef = ref(null)
 const fileInputRef = ref(null)
 const mentionPickerRef = ref(null)
 const selectionMap = ref({})
+const previewImageUrl = ref('')
 
 const {
   mentionState,
@@ -61,6 +63,12 @@ const {
   setBlocks,
   textareas,
 })
+
+const previewImages = computed(() => (
+  blocks.value
+    .filter((block) => block?.type === BLOCK_TYPES.IMAGE && String(block.content || '').trim())
+    .map((block) => String(block.content || '').trim())
+))
 
 function isCursorTextBlock(block) {
   return block?.type === BLOCK_TYPES.TEXT
@@ -258,7 +266,7 @@ function removeBlock(index) {
   })
 }
 
-function clearDocument() {
+function clearContent() {
   setBlocks([createTextBlock('')])
   activeIndex.value = 0
   selectionMap.value = {
@@ -449,6 +457,14 @@ function focusAfterImage(index) {
     activeIndex.value = nextTextIndex
     nextTick(() => placeCursor(nextTextIndex, 0))
   }
+}
+
+function openImagePreview(url) {
+  const value = String(url || '').trim()
+  if (!value) {
+    return
+  }
+  previewImageUrl.value = value
 }
 
 function insertImages(files) {
@@ -670,6 +686,20 @@ async function handleTextKeydown(index, event) {
   }
 }
 
+function focusEditor() {
+  const nextIndex = blocks.value.findIndex((block) => block.type === BLOCK_TYPES.TEXT)
+  if (nextIndex < 0) {
+    return
+  }
+
+  activeIndex.value = nextIndex
+  nextTick(() => {
+    const target = textareas.value[nextIndex]
+    const position = target?.selectionStart ?? target?.value?.length ?? 0
+    placeCursor(nextIndex, position)
+  })
+}
+
 const blockLayoutSignature = computed(() =>
   blocks.value
     .map((block, index) => `${index}:${block.type}:${block.meta?.collapsed ? '1' : '0'}`)
@@ -708,7 +738,8 @@ watch(
 )
 
 defineExpose({
-  clearDocument,
+  clearContent,
+  focusEditor,
   insertBlocks,
   insertImportedBlocks,
   insertTextAtSelection,
@@ -727,7 +758,7 @@ defineExpose({
     @dragover.prevent
     @paste="handleSurfacePaste"
   >
-    <div class="border-b border-stone-200 px-5 py-4 text-sm text-stone-600 dark:border-stone-800 dark:text-stone-400">
+    <div class="border-b border-stone-200 px-5 py-4 text-sm text-stone-600 dark:border-[#39312c] dark:text-stone-400">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <p class="inline-flex items-center gap-2 font-medium text-stone-900 dark:text-stone-100">
           <ScanText class="h-4 w-4" />
@@ -738,7 +769,7 @@ defineExpose({
         </div>
       </div>
       <div v-if="uploading" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
-        <span class="inline-flex items-center gap-1.5 rounded-sm border border-dashed border-stone-400 px-2 py-1 dark:border-stone-700">
+        <span class="inline-flex items-center gap-1.5 rounded-sm border border-dashed border-stone-400 px-2 py-1 dark:border-[#544941]">
           <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
           <span>正在处理文件...</span>
         </span>
@@ -781,7 +812,7 @@ defineExpose({
         </div>
 
         <div v-else-if="block.type === BLOCK_TYPES.IMPORTED_TEXT" class="group relative dashed-panel overflow-hidden">
-          <div class="flex items-start justify-between gap-3 border-b border-dashed border-stone-300 px-4 py-3 text-xs text-stone-600 dark:border-stone-700 dark:text-stone-400">
+          <div class="flex items-start justify-between gap-3 border-b border-dashed border-stone-300 px-4 py-3 text-xs text-stone-600 dark:border-[#544941] dark:text-stone-400">
             <div class="min-w-0 pr-24">
               <p class="font-medium text-stone-900 dark:text-stone-100">导入文件</p>
               <p class="mt-1 truncate font-mono">{{ block.meta?.fileName || '未命名文件' }}</p>
@@ -832,17 +863,34 @@ defineExpose({
             <Trash2 class="h-3.5 w-3.5" />
             <span>删除</span>
           </button>
-          <div class="overflow-hidden rounded-sm border border-stone-300 bg-stone-100 dark:border-stone-700 dark:bg-stone-950" @click="focusAfterImage(index)">
-            <div class="flex items-center gap-2 border-b border-stone-200 px-4 py-3 text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">
+          <div class="overflow-hidden rounded-sm border border-stone-300 bg-stone-100 dark:border-[#544941] dark:bg-[#26211d]" @click="focusAfterImage(index)">
+            <div class="flex items-center gap-2 border-b border-stone-200 px-4 py-3 text-xs text-stone-500 dark:border-[#39312c] dark:text-stone-400">
               <ImageIcon class="h-4 w-4" />
               <span>已插入图片</span>
             </div>
-            <img :src="block.content" alt="已插入图片" class="max-h-[540px] w-full object-contain" />
+            <div class="mx-auto flex w-full max-w-[720px] justify-center px-4 py-4">
+              <button
+                type="button"
+                class="inline-flex cursor-zoom-in justify-center"
+                @click.stop="openImagePreview(block.content)"
+              >
+                <img
+                  :src="block.content"
+                  alt="已插入图片"
+                  class="max-h-[380px] w-auto max-w-full object-contain"
+                />
+              </button>
+            </div>
           </div>
         </figure>
       </template>
       </div>
     </div>
+
+    <ImagePreviewOverlay
+      v-model="previewImageUrl"
+      :images="previewImages"
+    />
 
     <PathMentionPicker
       ref="mentionPickerRef"

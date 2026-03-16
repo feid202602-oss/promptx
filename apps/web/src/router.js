@@ -1,14 +1,10 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from './views/HomeView.vue'
-import EditorView from './views/EditorView.vue'
-import PublicView from './views/PublicView.vue'
+﻿import { createRouter, createWebHistory } from 'vue-router'
+import WorkbenchView from './views/WorkbenchView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'home', component: HomeView },
-    { path: '/edit/:slug', name: 'editor', component: EditorView },
-    { path: '/p/:slug', name: 'public', component: PublicView },
+    { path: '/', name: 'workbench', component: WorkbenchView },
   ],
 })
 

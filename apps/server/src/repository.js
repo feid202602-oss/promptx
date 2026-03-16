@@ -1,7 +1,7 @@
 import { customAlphabet } from 'nanoid'
 import {
   BLOCK_TYPES,
-  buildRawText,
+  buildRawTaskText,
   clampText,
   deriveTitleFromBlocks,
   getExpiryValue,
@@ -9,7 +9,7 @@ import {
   normalizeVisibility,
   resolveExpiresAt,
   slugifyTitle,
-  summarizeDocument,
+  summarizeTask,
 } from '@promptx/shared'
 import { all, get, run, transaction } from './db.js'
 
@@ -26,12 +26,15 @@ function toBlock(row) {
   }
 }
 
-function toDocument(row, blocks = []) {
-  const displayTitle = row.title || deriveTitleFromBlocks(blocks)
+function toTask(row, blocks = []) {
+  const displayTitle = row.title || row.auto_title || deriveTitleFromBlocks(blocks)
   return {
     id: Number(row.id),
     slug: row.slug,
     title: row.title,
+    autoTitle: row.auto_title || '',
+    lastPromptPreview: row.last_prompt_preview || '',
+    codexSessionId: row.codex_session_id || '',
     displayTitle,
     visibility: row.visibility,
     expiresAt: row.expires_at,
@@ -45,47 +48,47 @@ function toDocument(row, blocks = []) {
 function ensureSlug(title) {
   const base = slugifyTitle(title)
   let slug = `${base}-${slugTail()}`
-  while (get('SELECT 1 FROM documents WHERE slug = ?', [slug])) {
+  while (get('SELECT 1 FROM tasks WHERE slug = ?', [slug])) {
     slug = `${base}-${slugTail()}`
   }
   return slug
 }
 
-function isExpired(document) {
-  return Boolean(document.expiresAt && new Date(document.expiresAt).getTime() <= Date.now())
+function isExpired(task) {
+  return Boolean(task.expiresAt && new Date(task.expiresAt).getTime() <= Date.now())
 }
 
-function loadBlocks(documentId) {
+function loadBlocks(taskId) {
   return all(
     `SELECT id, type, content, sort_order, meta_json
      FROM blocks
-     WHERE document_id = ?
+     WHERE task_id = ?
      ORDER BY sort_order ASC, id ASC`,
-    [documentId]
+    [taskId]
   ).map(toBlock)
 }
 
-function loadBlocksForDocuments(documentIds = []) {
-  if (!documentIds.length) {
+function loadBlocksForTasks(taskIds = []) {
+  if (!taskIds.length) {
     return new Map()
   }
 
-  const placeholders = documentIds.map(() => '?').join(', ')
+  const placeholders = taskIds.map(() => '?').join(', ')
   const rows = all(
-    `SELECT document_id, type, content, sort_order, id
+    `SELECT task_id, type, content, sort_order, id
      FROM blocks
-     WHERE document_id IN (${placeholders})
-     ORDER BY document_id ASC, sort_order ASC, id ASC`,
-    documentIds
+     WHERE task_id IN (${placeholders})
+     ORDER BY task_id ASC, sort_order ASC, id ASC`,
+    taskIds
   )
 
   const grouped = new Map()
   rows.forEach((row) => {
-    const documentId = Number(row.document_id)
-    if (!grouped.has(documentId)) {
-      grouped.set(documentId, [])
+    const taskId = Number(row.task_id)
+    if (!grouped.has(taskId)) {
+      grouped.set(taskId, [])
     }
-    grouped.get(documentId).push({
+    grouped.get(taskId).push({
       type: row.type,
       content: row.content,
     })
@@ -94,44 +97,44 @@ function loadBlocksForDocuments(documentIds = []) {
   return grouped
 }
 
-function loadListMetadata(documentIds = []) {
-  if (!documentIds.length) {
+function loadListMetadata(taskIds = []) {
+  if (!taskIds.length) {
     return {
-      blockCountByDocumentId: new Map(),
-      firstTextByDocumentId: new Map(),
+      blockCountByTaskId: new Map(),
+      firstTextByTaskId: new Map(),
     }
   }
 
-  const placeholders = documentIds.map(() => '?').join(', ')
+  const placeholders = taskIds.map(() => '?').join(', ')
   const countRows = all(
-    `SELECT document_id, COUNT(*) AS block_count
+    `SELECT task_id, COUNT(*) AS block_count
      FROM blocks
-     WHERE document_id IN (${placeholders})
-     GROUP BY document_id`,
-    documentIds
+     WHERE task_id IN (${placeholders})
+     GROUP BY task_id`,
+    taskIds
   )
   const firstTextRows = all(
-    `SELECT document_id, content
+    `SELECT task_id, content
      FROM (
        SELECT
-         document_id,
+         task_id,
          content,
-         ROW_NUMBER() OVER (PARTITION BY document_id ORDER BY sort_order ASC, id ASC) AS row_num
+         ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY sort_order ASC, id ASC) AS row_num
        FROM blocks
-       WHERE document_id IN (${placeholders})
+       WHERE task_id IN (${placeholders})
          AND type IN (?, ?)
          AND TRIM(content) != ''
      ) ranked
      WHERE row_num = 1`,
-    [...documentIds, BLOCK_TYPES.TEXT, BLOCK_TYPES.IMPORTED_TEXT]
+    [...taskIds, BLOCK_TYPES.TEXT, BLOCK_TYPES.IMPORTED_TEXT]
   )
 
   return {
-    blockCountByDocumentId: new Map(
-      countRows.map((row) => [Number(row.document_id), Number(row.block_count)])
+    blockCountByTaskId: new Map(
+      countRows.map((row) => [Number(row.task_id), Number(row.block_count)])
     ),
-    firstTextByDocumentId: new Map(
-      firstTextRows.map((row) => [Number(row.document_id), row.content || ''])
+    firstTextByTaskId: new Map(
+      firstTextRows.map((row) => [Number(row.task_id), row.content || ''])
     ),
   }
 }
@@ -142,19 +145,22 @@ function collectImagePaths(blocks = []) {
     .map((block) => block.content)
 }
 
-function mapDocumentSummary(row, firstText = '', blockCount = 0) {
+function mapTaskSummary(row, firstText = '', blockCount = 0) {
   const textBlock = firstText
     ? [{ type: BLOCK_TYPES.TEXT, content: firstText }]
     : []
 
   return {
     slug: row.slug,
-    title: row.title || deriveTitleFromBlocks(textBlock) || '未命名文档',
+    title: row.title || '',
+    autoTitle: row.auto_title || deriveTitleFromBlocks(textBlock) || '',
+    lastPromptPreview: row.last_prompt_preview || '',
+    codexSessionId: row.codex_session_id || '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     visibility: row.visibility,
     expiresAt: row.expires_at,
-    preview: summarizeDocument({ blocks: textBlock }),
+    preview: summarizeTask({ blocks: textBlock }),
     blockCount,
   }
 }
@@ -187,38 +193,34 @@ function normalizeBlockInput(block = {}) {
   }
 }
 
-export function listDocuments(limit = 30) {
-  const now = new Date().toISOString()
+export function listTasks(limit = 30) {
   const rows = all(
-    `SELECT id, slug, title, visibility, expires_at, created_at, updated_at
-     FROM documents
-     WHERE visibility = 'listed'
-       AND (expires_at IS NULL OR expires_at > ?)
-     ORDER BY created_at DESC
+    `SELECT id, slug, title, auto_title, last_prompt_preview, codex_session_id, visibility, expires_at, created_at, updated_at
+     FROM tasks
+     ORDER BY updated_at DESC
      LIMIT ?`,
-    [now, limit]
+    [Math.max(1, Number(limit) || 30)]
   )
 
-  const documentIds = rows.map((row) => Number(row.id))
+  const taskIds = rows.map((row) => Number(row.id))
   const {
-    blockCountByDocumentId,
-    firstTextByDocumentId,
-  } = loadListMetadata(documentIds)
+    blockCountByTaskId,
+    firstTextByTaskId,
+  } = loadListMetadata(taskIds)
 
-  return rows
-    .map((row) =>
-      mapDocumentSummary(
-        row,
-        firstTextByDocumentId.get(Number(row.id)) || '',
-        blockCountByDocumentId.get(Number(row.id)) || 0
-      )
+  return rows.map((row) =>
+    mapTaskSummary(
+      row,
+      firstTextByTaskId.get(Number(row.id)) || '',
+      blockCountByTaskId.get(Number(row.id)) || 0
     )
+  )
 }
 
-export function getDocumentBySlug(slug) {
+export function getTaskBySlug(slug) {
   const row = get(
-    `SELECT id, slug, title, visibility, expires_at, created_at, updated_at
-     FROM documents
+    `SELECT id, slug, title, auto_title, last_prompt_preview, codex_session_id, visibility, expires_at, created_at, updated_at
+     FROM tasks
      WHERE slug = ?`,
     [slug]
   )
@@ -227,41 +229,54 @@ export function getDocumentBySlug(slug) {
     return null
   }
 
-  const document = toDocument(row, loadBlocks(row.id))
-  return isExpired(document) ? { ...document, expired: true } : document
+  const task = toTask(row, loadBlocks(row.id))
+  return isExpired(task) ? { ...task, expired: true } : task
 }
 
-export function createDocument(input = {}) {
+export function createTask(input = {}) {
   const now = new Date().toISOString()
   const title = clampText(input.title || '', 140)
+  const autoTitle = clampText(input.autoTitle || '', 140)
+  const lastPromptPreview = clampText(input.lastPromptPreview || '', 280)
+  const codexSessionId = clampText(input.codexSessionId || '', 120)
   const visibility = normalizeVisibility(input.visibility)
-  const expiresAt = resolveExpiresAt(normalizeExpiry(input.expiry || '24h'))
+  const expiresAt = resolveExpiresAt(normalizeExpiry(input.expiry || 'none'))
   const slug = ensureSlug(title)
   const editToken = tokenId()
 
   transaction(() => {
     run(
-      `INSERT INTO documents (slug, edit_token, title, visibility, expires_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [slug, editToken, title, visibility, expiresAt, now, now]
+      `INSERT INTO tasks (slug, edit_token, title, auto_title, last_prompt_preview, codex_session_id, visibility, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [slug, editToken, title, autoTitle, lastPromptPreview, codexSessionId, visibility, expiresAt, now, now]
     )
   })
 
   return {
-    ...getDocumentBySlug(slug),
+    ...getTaskBySlug(slug),
     editToken,
   }
 }
 
-export function updateDocument(slug, input = {}) {
-  const existing = get('SELECT id, edit_token FROM documents WHERE slug = ?', [slug])
+export function updateTask(slug, input = {}) {
+  const existing = get(
+    `SELECT id, edit_token, codex_session_id
+     FROM tasks
+     WHERE slug = ?`,
+    [slug]
+  )
   if (!existing) {
     return { error: 'not_found' }
   }
 
   const title = clampText(input.title || '', 140)
+  const autoTitle = clampText(input.autoTitle || '', 140)
+  const lastPromptPreview = clampText(input.lastPromptPreview || '', 280)
+  const codexSessionId = Object.prototype.hasOwnProperty.call(input, 'codexSessionId')
+    ? clampText(input.codexSessionId || '', 120)
+    : String(existing.codex_session_id || '')
   const visibility = normalizeVisibility(input.visibility)
-  const expiresAt = resolveExpiresAt(normalizeExpiry(input.expiry || '24h'))
+  const expiresAt = resolveExpiresAt(normalizeExpiry(input.expiry || 'none'))
   const updatedAt = new Date().toISOString()
   const blocks = Array.isArray(input.blocks) ? input.blocks.map(normalizeBlockInput) : []
   const currentBlocks = loadBlocks(existing.id)
@@ -269,10 +284,10 @@ export function updateDocument(slug, input = {}) {
 
   transaction(() => {
     run(
-      `UPDATE documents
-       SET title = ?, visibility = ?, expires_at = ?, updated_at = ?
+      `UPDATE tasks
+       SET title = ?, auto_title = ?, last_prompt_preview = ?, codex_session_id = ?, visibility = ?, expires_at = ?, updated_at = ?
        WHERE slug = ?`,
-      [title, visibility, expiresAt, updatedAt, slug]
+      [title, autoTitle, lastPromptPreview, codexSessionId, visibility, expiresAt, updatedAt, slug]
     )
 
     const incomingIds = new Set()
@@ -294,7 +309,7 @@ export function updateDocument(slug, input = {}) {
           run(
             `UPDATE blocks
              SET type = ?, content = ?, sort_order = ?, meta_json = ?
-             WHERE id = ? AND document_id = ?`,
+             WHERE id = ? AND task_id = ?`,
             [block.type, block.content, index, block.metaJson, currentBlock.id, existing.id]
           )
         }
@@ -302,7 +317,7 @@ export function updateDocument(slug, input = {}) {
       }
 
       run(
-        `INSERT INTO blocks (document_id, type, content, sort_order, meta_json, created_at)
+        `INSERT INTO blocks (task_id, type, content, sort_order, meta_json, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
         [existing.id, block.type, block.content, index, block.metaJson, updatedAt]
       )
@@ -310,16 +325,16 @@ export function updateDocument(slug, input = {}) {
 
     currentBlocks.forEach((block) => {
       if (!incomingIds.has(block.id)) {
-        run('DELETE FROM blocks WHERE id = ? AND document_id = ?', [block.id, existing.id])
+        run('DELETE FROM blocks WHERE id = ? AND task_id = ?', [block.id, existing.id])
       }
     })
   })
 
-  return getDocumentBySlug(slug)
+  return getTaskBySlug(slug)
 }
 
-export function deleteDocument(slug) {
-  const row = get('SELECT id, edit_token FROM documents WHERE slug = ?', [slug])
+export function deleteTask(slug) {
+  const row = get('SELECT id, edit_token FROM tasks WHERE slug = ?', [slug])
   if (!row) {
     return { error: 'not_found' }
   }
@@ -328,15 +343,16 @@ export function deleteDocument(slug) {
   const removedAssets = collectImagePaths(blocks)
 
   transaction(() => {
-    run('DELETE FROM documents WHERE slug = ?', [slug])
+    run('DELETE FROM tasks WHERE slug = ?', [slug])
   })
+
   return { ok: true, removedAssets }
 }
 
-export function purgeExpiredDocuments(now = new Date().toISOString()) {
+export function purgeExpiredTasks(now = new Date().toISOString()) {
   const rows = all(
     `SELECT id
-     FROM documents
+     FROM tasks
      WHERE expires_at IS NOT NULL
        AND expires_at <= ?`,
     [now]
@@ -346,29 +362,81 @@ export function purgeExpiredDocuments(now = new Date().toISOString()) {
     return { removedAssets: [], removedCount: 0 }
   }
 
-  const documentIds = rows.map((row) => Number(row.id))
-  const blocksByDocumentId = loadBlocksForDocuments(documentIds)
-  const removedAssets = documentIds.flatMap((documentId) =>
-    collectImagePaths(blocksByDocumentId.get(documentId) || [])
+  const taskIds = rows.map((row) => Number(row.id))
+  const blocksByTaskId = loadBlocksForTasks(taskIds)
+  const removedAssets = taskIds.flatMap((taskId) =>
+    collectImagePaths(blocksByTaskId.get(taskId) || [])
   )
 
-  const placeholders = documentIds.map(() => '?').join(', ')
+  const placeholders = taskIds.map(() => '?').join(', ')
   transaction(() => {
-    run(`DELETE FROM documents WHERE id IN (${placeholders})`, documentIds)
+    run(`DELETE FROM tasks WHERE id IN (${placeholders})`, taskIds)
   })
 
   return {
     removedAssets,
-    removedCount: documentIds.length,
+    removedCount: taskIds.length,
   }
 }
 
-export function buildDocumentExports(document) {
+export function buildTaskExports(task) {
   return {
-    raw: buildRawText(document),
+    raw: buildRawTaskText(task),
   }
 }
 
-export function canEditDocument(slug) {
-  return Boolean(get('SELECT 1 FROM documents WHERE slug = ?', [slug]))
+export function canEditTask(slug) {
+  return Boolean(get('SELECT 1 FROM tasks WHERE slug = ?', [slug]))
+}
+
+export function updateTaskCodexSession(slug, codexSessionId = '') {
+  const existing = get('SELECT slug FROM tasks WHERE slug = ?', [slug])
+  if (!existing) {
+    return null
+  }
+
+  const normalizedSessionId = String(codexSessionId || '').trim()
+  const updatedAt = new Date().toISOString()
+
+  transaction(() => {
+    run(
+      `UPDATE tasks
+       SET codex_session_id = ?, updated_at = ?
+       WHERE slug = ?`,
+      [normalizedSessionId, updatedAt, slug]
+    )
+  })
+
+  return getTaskBySlug(slug)
+}
+
+export function clearTaskCodexSessionReferences(codexSessionId = '') {
+  const normalizedSessionId = String(codexSessionId || '').trim()
+  if (!normalizedSessionId) {
+    return 0
+  }
+
+  const matchedCount = Number(
+    get(
+      `SELECT COUNT(*) AS count
+       FROM tasks
+       WHERE codex_session_id = ?`,
+      [normalizedSessionId]
+    )?.count || 0
+  )
+
+  if (!matchedCount) {
+    return 0
+  }
+
+  transaction(() => {
+    run(
+      `UPDATE tasks
+       SET codex_session_id = ''
+       WHERE codex_session_id = ?`,
+      [normalizedSessionId]
+    )
+  })
+
+  return matchedCount
 }

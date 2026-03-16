@@ -313,80 +313,6 @@ export function listKnownCodexWorkspaces(limit = MAX_THREAD_COUNT) {
   return items
 }
 
-export async function sendPromptToCodexSession(sessionInput, prompt) {
-  const session = normalizeManagedSession(sessionInput)
-  const normalizedPrompt = String(prompt || '').trim()
-
-  if (!session) {
-    throw new Error('缺少 PromptX 会话。')
-  }
-  if (!normalizedPrompt) {
-    throw new Error('没有可发送的提示词。')
-  }
-
-  ensureCodexHome()
-
-  const outputFile = path.join(TMP_DIR, `promptx-codex-${Date.now()}-${process.pid}.txt`)
-
-  try {
-    const result = await new Promise((resolve, reject) => {
-      const child = createCodexSpawn(
-        [
-          ...createExecArgs(session),
-          '--output-last-message',
-          outputFile,
-        ],
-        session.cwd
-      )
-
-      let stdout = ''
-      let stderr = ''
-
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString()
-      })
-
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString()
-      })
-
-      child.on('error', (error) => {
-        reject(normalizeSpawnError(error))
-      })
-
-      child.on('close', (code) => {
-        if (code !== 0) {
-          reject(new Error(repairPossibleMojibake(extractCodexError(stderr, stdout))))
-          return
-        }
-
-        const message = fs.existsSync(outputFile)
-          ? repairPossibleMojibake(fs.readFileSync(outputFile, 'utf8').trim())
-          : ''
-
-        resolve({
-          message,
-          stdout: repairPossibleMojibake(trimOutput(stdout)),
-          stderr: repairPossibleMojibake(trimOutput(stderr)),
-          threadId: parseThreadIdFromStdout(stdout),
-        })
-      })
-
-      child.stdin.write(normalizedPrompt)
-      child.stdin.end()
-    })
-
-    return {
-      sessionId: session.id,
-      message: result.message,
-      rawStdout: result.stdout,
-      threadId: result.threadId,
-    }
-  } finally {
-    fs.rmSync(outputFile, { force: true })
-  }
-}
-
 export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {}) {
   const session = normalizeManagedSession(sessionInput)
   const normalizedPrompt = String(prompt || '').trim()
@@ -556,6 +482,21 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
     child,
     result,
     cancel() {
+      if (child.killed) {
+        return
+      }
+
+      if (process.platform === 'win32' && child.pid) {
+        try {
+          execFileSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+            stdio: 'ignore',
+          })
+          return
+        } catch {
+          // Fall through to the default child kill when taskkill is unavailable.
+        }
+      }
+
       if (!child.killed) {
         child.kill('SIGTERM')
       }
