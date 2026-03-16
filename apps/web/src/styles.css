@@ -49,3 +49,46 @@ body {
     @apply underline decoration-stone-400 underline-offset-4;
   }
 }
+
+.task-loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 18px;
+}
+
+.task-loading-dots__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.3;
+  animation: task-loading-dot 0.9s ease-in-out infinite;
+}
+
+.task-loading-dots__dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.task-loading-dots__dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes task-loading-dot {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.28;
+  }
+  40% {
+    transform: translateY(-1.5px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-loading-dots__dot {
+    animation: none;
+    opacity: 0.65;
+  }
+}

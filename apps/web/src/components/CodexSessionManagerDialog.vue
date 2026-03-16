@@ -172,7 +172,7 @@ function sortSessions(items = []) {
 }
 
 function getRuntimeStatusLabel(sessionId) {
-  return isSessionRunning(sessionId) ? '执行中' : '空闲'
+  return isSessionRunning(sessionId) ? '运行中' : '空闲'
 }
 
 function getRuntimeStatusClass(sessionId) {

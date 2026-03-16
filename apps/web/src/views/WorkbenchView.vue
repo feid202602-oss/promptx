@@ -258,7 +258,9 @@ onBeforeUnmount(() => {
               class="group relative rounded-sm border px-3 py-3 transition cursor-default"
               :class="task.slug === currentTaskSlug
                 ? 'border-stone-500 bg-stone-100 text-stone-900 dark:border-[#73665c] dark:bg-[#332c27] dark:text-stone-100'
-                : 'border-stone-300 bg-stone-50 hover:bg-stone-100 dark:border-[#453c36] dark:bg-[#26211d] dark:hover:bg-[#2f2924]'"
+                : task.sending
+                  ? 'border-amber-300 bg-amber-50/70 hover:bg-amber-50 dark:border-[#6f5a3f] dark:bg-[#312820] dark:hover:bg-[#392f26]'
+                  : 'border-stone-300 bg-stone-50 hover:bg-stone-100 dark:border-[#453c36] dark:bg-[#26211d] dark:hover:bg-[#2f2924]'"
               @click="selectTask(task.slug)"
             >
               <span
@@ -291,9 +293,16 @@ onBeforeUnmount(() => {
                 <div class="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] opacity-80">
                   <span
                     v-if="task.sending"
-                    class="rounded-sm border border-dashed px-1.5 py-0.5"
+                    class="inline-flex items-center gap-1.5 rounded-sm border border-dashed px-1.5 py-0.5"
                     :class="'border-amber-300 text-amber-700 dark:border-[#7f6949] dark:bg-[#392f20] dark:text-[#e5ce9a]'"
-                  >运行中</span>
+                  >
+                    <span class="task-loading-dots" aria-hidden="true">
+                      <span class="task-loading-dots__dot"></span>
+                      <span class="task-loading-dots__dot"></span>
+                      <span class="task-loading-dots__dot"></span>
+                    </span>
+                    <span>运行中</span>
+                  </span>
                 </div>
               </div>
               <div class="mt-2 truncate text-xs opacity-80">{{ task.lastPromptPreview || '还没有发送记录' }}</div>

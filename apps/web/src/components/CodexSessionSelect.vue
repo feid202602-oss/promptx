@@ -44,7 +44,7 @@ function getSessionCwd(session) {
 }
 
 function getRuntimeStatusLabel(session) {
-  return session?.running ? '执行中' : '空闲'
+  return session?.running ? '运行中' : '空闲'
 }
 
 function getRuntimeStatusClass(session) {

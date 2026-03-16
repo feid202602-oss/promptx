@@ -164,7 +164,7 @@ export function formatCodexEvent(event = {}) {
 
 export function getProcessStatus(turn) {
   if (turn.status === 'running') {
-    return '进行中'
+    return '运行中'
   }
   if (turn.status === 'error') {
     return '失败'
@@ -408,7 +408,7 @@ export function useCodexSessionPanel(props, emit) {
     }
     return ''
   })
-  const workingLabel = computed(() => `处理中 (${sendingElapsedSeconds.value}s)`)
+  const workingLabel = computed(() => `运行中 (${sendingElapsedSeconds.value}s)`)
 
   function clearSendingTimer() {
     if (sendingTimer) {
@@ -930,7 +930,7 @@ export function useCodexSessionPanel(props, emit) {
       }
 
       if (latestSelectedSession.running) {
-        sessionError.value = '当前会话正在执行中，请等待完成后再发送。'
+        sessionError.value = '当前会话正在运行中，请等待完成后再发送。'
         return false
       }
 
