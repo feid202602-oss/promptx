@@ -10,9 +10,13 @@ import {
   stopCodexRun,
   updateCodexSession,
 } from '../lib/api.js'
-import { subscribeServerEvents } from '../lib/serverEvents.js'
+import {
+  subscribeTaskRunEvents,
+  useWorkbenchRealtime,
+} from './useWorkbenchRealtime.js'
 
 const SESSION_REFRESH_TTL = 1500
+const WORKSPACE_REFRESH_TTL = 30000
 const SERVER_SYNC_DELAY = 150
 const AUTO_SCROLL_THRESHOLD = 48
 
@@ -1087,6 +1091,7 @@ export function createTurnFromRun(run, nextTurnId, nextLogId, mergeSession) {
 }
 
 export function useCodexSessionPanel(props, emit) {
+  const realtime = useWorkbenchRealtime()
   const sessions = ref([])
   const workspaces = ref([])
   const loading = ref(false)
@@ -1106,11 +1111,13 @@ export function useCodexSessionPanel(props, emit) {
   let logId = 0
   let sendingTimer = null
   let sessionsLoadPromise = null
+  let workspacesLoadPromise = null
   let lastSessionsLoadedAt = 0
+  let lastWorkspacesLoadedAt = 0
   let runsLoadPromise = null
   let runPollTimer = null
   let lastRunFingerprint = ''
-  let unsubscribeServerEvents = null
+  let unsubscribeTaskRunEvents = null
   let serverSyncTimer = null
   let stickToBottom = true
   let pendingServerSync = {
@@ -1269,6 +1276,7 @@ export function useCodexSessionPanel(props, emit) {
 
   function openManager() {
     showManager.value = true
+    loadWorkspaces().catch(() => {})
   }
 
   function closeManager() {
@@ -1404,7 +1412,10 @@ export function useCodexSessionPanel(props, emit) {
 
     runsLoadPromise = (async () => {
       try {
-        const payload = await listTaskCodexRuns(taskSlug, { limit: 20 })
+        const payload = await listTaskCodexRuns(taskSlug, {
+          limit: 20,
+          includeEvents: true,
+        })
         const items = payload.items || []
         const fingerprint = JSON.stringify(items.map((item) => ({
           id: item.id,
@@ -1451,14 +1462,10 @@ export function useCodexSessionPanel(props, emit) {
       sessionError.value = ''
 
       try {
-        const [sessionPayload, workspacePayload] = await Promise.all([
-          listCodexSessions(),
-          listCodexWorkspaces(),
-        ])
+        const sessionPayload = await listCodexSessions()
         const nextSessions = sessionPayload.items || []
 
         sessions.value = nextSessions
-        workspaces.value = workspacePayload.items || []
         lastSessionsLoadedAt = Date.now()
 
         return {
@@ -1475,6 +1482,49 @@ export function useCodexSessionPanel(props, emit) {
     })()
 
     return sessionsLoadPromise
+  }
+
+  async function loadWorkspaces(options = {}) {
+    const { force = false } = options
+
+    if (workspacesLoadPromise) {
+      return workspacesLoadPromise
+    }
+
+    const now = Date.now()
+    if (!force && lastWorkspacesLoadedAt && now - lastWorkspacesLoadedAt < WORKSPACE_REFRESH_TTL) {
+      return {
+        items: workspaces.value,
+      }
+    }
+
+    workspacesLoadPromise = (async () => {
+      try {
+        const workspacePayload = await listCodexWorkspaces()
+        workspaces.value = workspacePayload.items || []
+        lastWorkspacesLoadedAt = Date.now()
+        return {
+          items: workspaces.value,
+        }
+      } finally {
+        workspacesLoadPromise = null
+      }
+    })()
+
+    return workspacesLoadPromise
+  }
+
+  async function loadSessionResources(options = {}) {
+    const { forceSessions = false, forceWorkspaces = false } = options
+    const [sessionPayload, workspacePayload] = await Promise.all([
+      loadSessions({ force: forceSessions }),
+      loadWorkspaces({ force: forceWorkspaces }),
+    ])
+
+    return {
+      items: sessionPayload?.items || sessions.value,
+      workspaces: workspacePayload?.items || workspaces.value,
+    }
   }
 
   function upsertWorkspace(cwd = '') {
@@ -1500,54 +1550,10 @@ export function useCodexSessionPanel(props, emit) {
   }
 
   function refreshSessionsForSelection() {
-    loadSessions({ force: true }).catch(() => {})
-  }
-
-  function handleServerEvent(event = {}) {
-    const eventType = String(event.type || '').trim()
-    const eventTaskSlug = String(event.taskSlug || '').trim()
-    const currentTaskSlug = String(props.taskSlug || '').trim()
-
-    if (!eventType) {
-      return
-    }
-
-    if (eventType === 'ready') {
-      if (props.active || showManager.value) {
-        scheduleServerSync({
-          sessions: true,
-          runs: Boolean(currentTaskSlug),
-        })
-      }
-      return
-    }
-
-    if (eventType === 'sessions.changed') {
-      if (props.active || showManager.value) {
-        scheduleServerSync({ sessions: true })
-      }
-      return
-    }
-
-    if (eventType === 'runs.changed' && eventTaskSlug && eventTaskSlug === currentTaskSlug) {
-      if (props.active) {
-        scheduleServerSync({
-          sessions: true,
-          runs: true,
-        })
-      }
-      return
-    }
-
-    if (eventType === 'run.event' && eventTaskSlug && eventTaskSlug === currentTaskSlug && props.active) {
-      const applied = applyIncomingRunEvent(event.runId, event.event)
-      if (!applied) {
-        scheduleServerSync({
-          sessions: true,
-          runs: true,
-        })
-      }
-    }
+    loadSessionResources({
+      forceSessions: true,
+      forceWorkspaces: true,
+    }).catch(() => {})
   }
 
   async function handleCreateSession(payload) {
@@ -1666,7 +1672,9 @@ export function useCodexSessionPanel(props, emit) {
     sessionError.value = ''
 
     try {
-      await loadSessions({ force: true })
+      await loadSessionResources({
+        forceSessions: true,
+      })
 
       const latestSelectedSession = sessions.value.find((session) => session.id === selectedSessionId.value) || null
       if (!latestSelectedSession) {
@@ -1699,12 +1707,14 @@ export function useCodexSessionPanel(props, emit) {
         })
       }
 
-      Promise.all([
-        refreshRunHistory({ force: true }),
-        loadSessions({ force: true }),
-      ]).catch((err) => {
-        sessionError.value = err.message
-      })
+      if (!supportsServerEvents) {
+        Promise.all([
+          refreshRunHistory({ force: true }),
+          loadSessions({ force: true }),
+        ]).catch((err) => {
+          sessionError.value = err.message
+        })
+      }
       return true
     } catch (err) {
       sessionError.value = err.message
@@ -1719,10 +1729,12 @@ export function useCodexSessionPanel(props, emit) {
 
     try {
       await stopCodexRun(currentRunningRunId.value)
-      await Promise.all([
-        refreshRunHistory({ force: true }),
-        loadSessions({ force: true }),
-      ])
+      if (!supportsServerEvents) {
+        await Promise.all([
+          refreshRunHistory({ force: true }),
+          loadSessions({ force: true }),
+        ])
+      }
     } catch (err) {
       sessionError.value = err.message
     }
@@ -1803,7 +1815,9 @@ export function useCodexSessionPanel(props, emit) {
     () => props.active,
     (active) => {
       if (active) {
-        loadSessions({ force: true }).catch(() => {})
+        loadSessionResources({
+          forceSessions: true,
+        }).catch(() => {})
         refreshRunHistory({ force: true, scrollToLatest: true }).catch(() => {})
         return
       }
@@ -1835,14 +1849,79 @@ export function useCodexSessionPanel(props, emit) {
     clearSendingTimer()
     clearRunPollTimer()
     clearServerSyncTimer()
-    unsubscribeServerEvents?.()
+    unsubscribeTaskRunEvents?.()
   })
 
-  if (typeof window !== 'undefined' && !unsubscribeServerEvents) {
-    unsubscribeServerEvents = subscribeServerEvents((event) => {
-      handleServerEvent(event)
-    })
-  }
+  watch(
+    () => realtime.readyVersion.value,
+    () => {
+      const currentTaskSlug = String(props.taskSlug || '').trim()
+      if (!props.active && !showManager.value) {
+        return
+      }
+
+      if (showManager.value) {
+        loadWorkspaces().catch(() => {})
+      }
+
+      scheduleServerSync({
+        sessions: true,
+        runs: Boolean(currentTaskSlug),
+      })
+    }
+  )
+
+  watch(
+    () => realtime.sessionsSyncVersion.value,
+    () => {
+      if (!props.active && !showManager.value) {
+        return
+      }
+
+      scheduleServerSync({ sessions: true })
+    }
+  )
+
+  watch(
+    () => realtime.getTaskRunSyncVersion(props.taskSlug),
+    () => {
+      if (!props.active || !props.taskSlug) {
+        return
+      }
+
+      scheduleServerSync({
+        sessions: true,
+        runs: true,
+      })
+    }
+  )
+
+  watch(
+    () => String(props.taskSlug || '').trim(),
+    (taskSlug) => {
+      unsubscribeTaskRunEvents?.()
+      unsubscribeTaskRunEvents = null
+
+      if (!taskSlug) {
+        return
+      }
+
+      unsubscribeTaskRunEvents = subscribeTaskRunEvents(taskSlug, ({ runId, event }) => {
+        if (!props.active) {
+          return
+        }
+
+        const applied = applyIncomingRunEvent(runId, event)
+        if (!applied) {
+          scheduleServerSync({
+            sessions: true,
+            runs: true,
+          })
+        }
+      })
+    },
+    { immediate: true }
+  )
 
   return {
     clearTurns,

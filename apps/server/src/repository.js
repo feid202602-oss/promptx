@@ -454,20 +454,21 @@ export function updateTaskCodexSession(slug, codexSessionId = '') {
 export function clearTaskCodexSessionReferences(codexSessionId = '') {
   const normalizedSessionId = String(codexSessionId || '').trim()
   if (!normalizedSessionId) {
-    return 0
+    return []
   }
 
-  const matchedCount = Number(
-    get(
-      `SELECT COUNT(*) AS count
-       FROM tasks
-       WHERE codex_session_id = ?`,
-      [normalizedSessionId]
-    )?.count || 0
+  const matchedRows = all(
+    `SELECT slug
+     FROM tasks
+     WHERE codex_session_id = ?`,
+    [normalizedSessionId]
   )
+  const matchedTaskSlugs = matchedRows
+    .map((row) => String(row?.slug || '').trim())
+    .filter(Boolean)
 
-  if (!matchedCount) {
-    return 0
+  if (!matchedTaskSlugs.length) {
+    return []
   }
 
   transaction(() => {
@@ -479,5 +480,5 @@ export function clearTaskCodexSessionReferences(codexSessionId = '') {
     )
   })
 
-  return matchedCount
+  return matchedTaskSlugs
 }

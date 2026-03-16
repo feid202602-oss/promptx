@@ -23,9 +23,11 @@ import {
 } from './repository.js'
 import {
   listKnownCodexWorkspaces,
-  streamPromptToCodexSession,
 } from './codex.js'
-import { getTaskGitDiffReview } from './gitDiff.js'
+import {
+  getTaskGitDiffReview,
+  getWorkspaceGitDiffReviewByCwd,
+} from './gitDiff.js'
 import {
   createPromptxCodexSession,
   deletePromptxCodexSession,
@@ -34,25 +36,25 @@ import {
   updatePromptxCodexSession,
 } from './codexSessions.js'
 import {
-  appendCodexRunEvent,
   createCodexRun,
   deleteTaskCodexRuns,
   getCodexRunById,
   getRunningCodexRunBySessionId,
   getRunningCodexRunByTaskSlug,
+  listCodexRunEvents,
   listRunningCodexSessionIds,
   listRunningCodexTaskSlugs,
-  listTaskCodexRuns,
+  listTaskCodexRunsWithOptions,
   markInterruptedCodexRuns,
   updateCodexRun,
 } from './codexRuns.js'
+import { createCodexRunRuntime } from './codexRunRuntime.js'
 import { importPdfBlocks } from './pdf.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
 import { listWorkspaceTree, searchWorkspaceEntries } from './workspaceFiles.js'
+import { createSseHub } from './sseHub.js'
 
 const app = Fastify({ logger: true })
-const activeCodexRunControllers = new Map()
-const sseClients = new Set()
 const port = Number(process.env.PORT || 3000)
 const host = process.env.HOST || '127.0.0.1'
 const uploadsDir = path.resolve(process.cwd(), 'uploads')
@@ -65,53 +67,11 @@ fs.mkdirSync(uploadsDir, { recursive: true })
 fs.mkdirSync(tmpDir, { recursive: true })
 
 let lastExpiredPurgeAt = 0
-let sseEventId = 0
-
-function createSseMessage(payload) {
-  return `id: ${++sseEventId}\ndata: ${JSON.stringify(payload)}\n\n`
-}
-
-function writeSseMessage(target, payload) {
-  if (!target || target.destroyed || target.writableEnded) {
-    return false
-  }
-
-  try {
-    target.write(createSseMessage(payload))
-    return true
-  } catch {
-    return false
-  }
-}
+const sseHub = createSseHub()
 
 function broadcastServerEvent(type, payload = {}) {
-  const message = {
-    type: String(type || '').trim(),
-    sentAt: new Date().toISOString(),
-    ...payload,
-  }
-
-  for (const client of [...sseClients]) {
-    if (!writeSseMessage(client, message)) {
-      sseClients.delete(client)
-    }
-  }
+  sseHub.broadcast(type, payload)
 }
-
-setInterval(() => {
-  for (const client of [...sseClients]) {
-    if (!client || client.destroyed || client.writableEnded) {
-      sseClients.delete(client)
-      continue
-    }
-
-    try {
-      client.write(': ping\n\n')
-    } catch {
-      sseClients.delete(client)
-    }
-  }
-}, 15000)
 
 function getRunningSessionIdSet() {
   return new Set(listRunningCodexSessionIds())
@@ -153,197 +113,76 @@ function decorateTaskList(items = []) {
   return items.map((item) => decorateTask(item, runningTaskSlugs))
 }
 
-function getActiveCodexRunController(runId = '') {
-  return activeCodexRunControllers.get(String(runId || '').trim()) || null
+function createEmptyWorkspaceDiffSummary() {
+  return {
+    supported: false,
+    fileCount: 0,
+    additions: 0,
+    deletions: 0,
+  }
 }
 
-function setActiveCodexRunController(runId = '', controller) {
-  const normalizedRunId = String(runId || '').trim()
-  if (!normalizedRunId || !controller) {
-    return
+function toWorkspaceDiffSummary(payload = null) {
+  if (!payload?.supported) {
+    return createEmptyWorkspaceDiffSummary()
   }
 
-  activeCodexRunControllers.set(normalizedRunId, controller)
+  return {
+    supported: true,
+    fileCount: Math.max(0, Number(payload.summary?.fileCount) || 0),
+    additions: Math.max(0, Number(payload.summary?.additions) || 0),
+    deletions: Math.max(0, Number(payload.summary?.deletions) || 0),
+  }
 }
 
-function clearActiveCodexRunController(runId = '') {
-  const normalizedRunId = String(runId || '').trim()
-  if (!normalizedRunId) {
-    return
-  }
+function attachTaskWorkspaceDiffSummaries(items = []) {
+  const summaryByWorkspaceKey = new Map()
+  const emptySummary = createEmptyWorkspaceDiffSummary()
 
-  activeCodexRunControllers.delete(normalizedRunId)
-}
+  return items.map((task) => {
+    const sessionId = String(task?.codexSessionId || '').trim()
+    if (!sessionId) {
+      return {
+        ...task,
+        workspaceDiffSummary: emptySummary,
+      }
+    }
 
-function notifyActiveCodexRunListeners(runId = '', payload = {}) {
-  const controller = getActiveCodexRunController(runId)
-  if (!controller?.listeners?.size) {
-    return
-  }
+    const session = getPromptxCodexSessionById(sessionId)
+    const workspaceKey = String(session?.cwd || sessionId).trim()
+    if (!summaryByWorkspaceKey.has(workspaceKey)) {
+      const payload = session?.cwd ? getWorkspaceGitDiffReviewByCwd(session.cwd) : null
+      summaryByWorkspaceKey.set(workspaceKey, toWorkspaceDiffSummary(payload))
+    }
 
-  controller.listeners.forEach((listener) => {
-    try {
-      listener(payload)
-    } catch {
-      // Ignore observer failures to avoid affecting the run lifecycle.
+    return {
+      ...task,
+      workspaceDiffSummary: summaryByWorkspaceKey.get(workspaceKey) || emptySummary,
     }
   })
 }
 
-function subscribeActiveCodexRun(runId = '', listener) {
-  const controller = getActiveCodexRunController(runId)
-  if (!controller || typeof listener !== 'function') {
-    return () => {}
-  }
-
-  controller.listeners.add(listener)
-  return () => {
-    controller.listeners.delete(listener)
-  }
-}
-
-function startCodexRunInBackground(runRecord) {
-  const runId = String(runRecord?.id || '').trim()
-  if (!runId) {
-    return
-  }
-
-  const session = getPromptxCodexSessionById(runRecord.sessionId)
-  if (!session) {
-    updateCodexRun(runId, {
-      status: 'error',
-      errorMessage: '没有找到对应的 PromptX 会话。',
-      finishedAt: new Date().toISOString(),
+const codexRunRuntime = createCodexRunRuntime({
+  decorateSession: decorateCodexSession,
+  onRunEvent({ taskSlug, runId, event }) {
+    broadcastServerEvent('run.event', {
+      taskSlug,
+      runId,
+      event,
     })
-    return
-  }
-
-  let eventSeq = 0
-  let stopRequested = false
-
-  const persistRunEvent = (payload) => {
-    eventSeq += 1
-    const event = appendCodexRunEvent(runId, eventSeq, payload)
-    if (event) {
-      broadcastServerEvent('run.event', {
-        taskSlug: runRecord.taskSlug,
-        runId,
-        event,
-      })
-      notifyActiveCodexRunListeners(runId, {
-        type: 'event',
-        event,
-      })
-    }
-    return event
-  }
-
-  persistRunEvent({
-    type: 'session',
-    session: decorateCodexSession(session),
-  })
-
-  const stream = streamPromptToCodexSession(session, runRecord.prompt, {
-    onEvent(payload) {
-      persistRunEvent(payload)
-    },
-    onThreadStarted(threadId) {
-      const updatedSession = updatePromptxCodexSession(session.id, {
-        codexThreadId: threadId,
-      })
-
-      if (updatedSession) {
-        persistRunEvent({
-          type: 'session.updated',
-          session: decorateCodexSession(updatedSession),
-        })
-        broadcastServerEvent('sessions.changed', {
-          sessionId: session.id,
-        })
-      }
-    },
-  })
-
-  const controller = {
-    listeners: new Set(),
-    cancel() {
-      stopRequested = true
-      stream.cancel()
-    },
-    get stopRequested() {
-      return stopRequested
-    },
-  }
-  setActiveCodexRunController(runId, controller)
-
-  stream.result
-    .then((result) => {
-      const nextRun = updateCodexRun(runId, {
-        status: 'completed',
-        responseMessage: result.message || '',
-        errorMessage: '',
-        finishedAt: new Date().toISOString(),
-      })
-      notifyActiveCodexRunListeners(runId, {
-        type: 'run',
-        run: nextRun,
-      })
-      broadcastServerEvent('runs.changed', {
-        taskSlug: runRecord.taskSlug,
-        runId,
-      })
-      broadcastServerEvent('sessions.changed', {
-        sessionId: session.id,
-      })
+  },
+  onRunUpdated({ taskSlug, runId }) {
+    broadcastServerEvent('runs.changed', {
+      taskSlug,
+      runId,
     })
-    .catch((error) => {
-      if (stopRequested) {
-        persistRunEvent({
-          type: 'stopped',
-          message: '执行已手动停止。',
-        })
-        const nextRun = updateCodexRun(runId, {
-          status: 'stopped',
-          responseMessage: '',
-          errorMessage: '',
-          finishedAt: new Date().toISOString(),
-        })
-        notifyActiveCodexRunListeners(runId, {
-          type: 'run',
-          run: nextRun,
-        })
-        broadcastServerEvent('runs.changed', {
-          taskSlug: runRecord.taskSlug,
-          runId,
-        })
-        broadcastServerEvent('sessions.changed', {
-          sessionId: session.id,
-        })
-        return
-      }
-
-      const nextRun = updateCodexRun(runId, {
-        status: 'error',
-        errorMessage: error.message || 'Codex 执行失败。',
-        finishedAt: new Date().toISOString(),
-      })
-      notifyActiveCodexRunListeners(runId, {
-        type: 'run',
-        run: nextRun,
-      })
-      broadcastServerEvent('runs.changed', {
-        taskSlug: runRecord.taskSlug,
-        runId,
-      })
-      broadcastServerEvent('sessions.changed', {
-        sessionId: session.id,
-      })
+  },
+  onSessionChanged({ sessionId }) {
+    broadcastServerEvent('sessions.changed', {
+      sessionId,
     })
-    .finally(() => {
-      notifyActiveCodexRunListeners(runId, { type: 'close' })
-      clearActiveCodexRunController(runId)
-    })
-}
+  },
+})
 
 function buildServerAccessUrls(hostname, currentPort) {
   const normalizedHost = String(hostname || '').trim()
@@ -482,14 +321,14 @@ app.get('/api/events/stream', async (request, reply) => {
   reply.raw.socket?.setNoDelay?.(true)
   reply.raw.flushHeaders?.()
 
-  sseClients.add(reply.raw)
-  writeSseMessage(reply.raw, {
+  const removeClient = sseHub.addClient(reply.raw)
+  sseHub.write(reply.raw, {
     type: 'ready',
     sentAt: new Date().toISOString(),
   })
 
   const handleClose = () => {
-    sseClients.delete(reply.raw)
+    removeClient()
   }
 
   reply.raw.on('close', handleClose)
@@ -498,7 +337,7 @@ app.get('/api/events/stream', async (request, reply) => {
 app.get('/api/tasks', async () => {
   purgeExpiredContent()
   return {
-    items: decorateTaskList(listTasks()),
+    items: attachTaskWorkspaceDiffSummaries(decorateTaskList(listTasks())),
   }
 })
 
@@ -507,6 +346,7 @@ app.post('/api/tasks', async (request, reply) => {
   const task = createTask(request.body || {})
   broadcastServerEvent('tasks.changed', {
     taskSlug: task.slug,
+    reason: 'created',
   })
   return reply.code(201).send(decorateTask(task))
 })
@@ -535,6 +375,7 @@ app.put('/api/tasks/:slug', async (request, reply) => {
   }
   broadcastServerEvent('tasks.changed', {
     taskSlug: request.params.slug,
+    reason: 'updated',
   })
   return decorateTask(result)
 })
@@ -551,6 +392,7 @@ app.delete('/api/tasks/:slug', async (request, reply) => {
   removeAssetFiles(result.removedAssets)
   broadcastServerEvent('tasks.changed', {
     taskSlug: request.params.slug,
+    reason: 'deleted',
   })
   return reply.code(204).send()
 })
@@ -584,6 +426,7 @@ app.post('/api/tasks/:slug/codex-session', async (request, reply) => {
 
   broadcastServerEvent('tasks.changed', {
     taskSlug: request.params.slug,
+    reason: sessionId ? 'session-linked' : 'session-cleared',
   })
 
   return {
@@ -601,8 +444,13 @@ app.get('/api/tasks/:slug/codex-runs', async (request, reply) => {
     return reply.code(404).send({ message: '任务不存在。' })
   }
 
+  const includeEvents = String(request.query?.includeEvents || '').trim() === 'true'
+
   return {
-    items: listTaskCodexRuns(request.params.slug, request.query?.limit),
+    items: listTaskCodexRunsWithOptions(request.params.slug, {
+      limit: request.query?.limit,
+      includeEvents,
+    }),
   }
 })
 
@@ -622,6 +470,8 @@ app.get('/api/tasks/:slug/git-diff', async (request, reply) => {
     scope,
     runId: request.query?.runId,
     filePath: request.query?.filePath,
+    includeFiles: String(request.query?.includeFiles || '').trim() !== 'false',
+    includeStats: String(request.query?.includeStats || '').trim() !== 'false',
   })
 })
 
@@ -659,10 +509,11 @@ app.post('/api/tasks/:slug/codex-runs', async (request, reply) => {
   })
 
   updateTaskCodexSession(request.params.slug, sessionId)
-  startCodexRunInBackground(runRecord)
+  codexRunRuntime.start(runRecord)
 
   broadcastServerEvent('tasks.changed', {
     taskSlug: request.params.slug,
+    reason: 'session-linked',
   })
   broadcastServerEvent('runs.changed', {
     taskSlug: request.params.slug,
@@ -839,7 +690,7 @@ app.delete('/api/codex/sessions/:sessionId', async (request, reply) => {
   if (getRunningCodexRunBySessionId(request.params.sessionId)) {
     return reply.code(409).send({ message: '当前会话正在执行中，请先停止后再删除。' })
   }
-  clearTaskCodexSessionReferences(request.params.sessionId)
+  const affectedTaskSlugs = clearTaskCodexSessionReferences(request.params.sessionId)
   const session = deletePromptxCodexSession(request.params.sessionId)
   if (!session) {
     return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
@@ -848,7 +699,18 @@ app.delete('/api/codex/sessions/:sessionId', async (request, reply) => {
   broadcastServerEvent('sessions.changed', {
     sessionId: request.params.sessionId,
   })
-  broadcastServerEvent('tasks.changed')
+  if (affectedTaskSlugs.length) {
+    affectedTaskSlugs.forEach((taskSlug) => {
+      broadcastServerEvent('tasks.changed', {
+        taskSlug,
+        reason: 'session-cleared',
+      })
+    })
+  } else {
+    broadcastServerEvent('tasks.changed', {
+      reason: 'session-cleared',
+    })
+  }
   return reply.code(204).send()
 })
 
@@ -862,7 +724,7 @@ app.post('/api/codex/runs/:runId/stop', async (request, reply) => {
     return { run: runRecord }
   }
 
-  const controller = getActiveCodexRunController(request.params.runId)
+  const controller = codexRunRuntime.getController(request.params.runId)
   if (!controller) {
     const stoppedRun = updateCodexRun(request.params.runId, {
       status: 'stopped',
@@ -942,7 +804,7 @@ app.get('/api/codex/runs/:runId/stream', async (request, reply) => {
   })
 
   const latestRun = getCodexRunById(request.params.runId)
-  if (!latestRun || latestRun.status !== 'running' || !getActiveCodexRunController(request.params.runId)) {
+  if (!latestRun || latestRun.status !== 'running' || !codexRunRuntime.getController(request.params.runId)) {
     writeMessage({
       type: 'run',
       run: latestRun || runRecord,
@@ -951,7 +813,7 @@ app.get('/api/codex/runs/:runId/stream', async (request, reply) => {
     return
   }
 
-  const unsubscribe = subscribeActiveCodexRun(request.params.runId, (payload) => {
+  const unsubscribe = codexRunRuntime.subscribe(request.params.runId, (payload) => {
     writeMessage(payload)
     if (payload.type === 'close') {
       closeStream()

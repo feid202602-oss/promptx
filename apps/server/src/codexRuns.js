@@ -5,6 +5,10 @@ import { captureRunGitBaseline, captureTaskGitBaseline } from './gitDiff.js'
 import { getTaskBySlug, updateTaskCodexSession } from './repository.js'
 
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'error', 'stopped', 'interrupted'])
+const EVENT_FLUSH_DELAY_MS = 180
+
+const pendingRunEventsByRunId = new Map()
+let pendingRunEventsFlushTimer = null
 
 function parseEventPayload(rawValue = '{}') {
   try {
@@ -42,6 +46,8 @@ function toCodexRun(row, events = []) {
     startedAt: row.started_at || row.created_at,
     finishedAt: row.finished_at || '',
     completed: TERMINAL_RUN_STATUSES.has(String(row.status || '')),
+    eventCount: Math.max(0, Number(row.event_count) || 0),
+    lastEventSeq: Math.max(0, Number(row.last_event_seq) || 0),
     events,
   }
 }
@@ -101,11 +107,75 @@ function getRunRowById(runId) {
   )
 }
 
+function clearPendingRunEventsFlushTimer() {
+  if (pendingRunEventsFlushTimer) {
+    clearTimeout(pendingRunEventsFlushTimer)
+    pendingRunEventsFlushTimer = null
+  }
+}
+
+function flushPendingRunEvents(runId = '') {
+  const normalizedRunId = String(runId || '').trim()
+  const targetRunIds = normalizedRunId
+    ? [normalizedRunId]
+    : [...pendingRunEventsByRunId.keys()]
+
+  const flushableRunIds = targetRunIds.filter((item) => {
+    const events = pendingRunEventsByRunId.get(item)
+    return Array.isArray(events) && events.length > 0
+  })
+
+  if (!flushableRunIds.length) {
+    return 0
+  }
+
+  let insertedCount = 0
+  transaction(() => {
+    flushableRunIds.forEach((targetRunId) => {
+      const events = pendingRunEventsByRunId.get(targetRunId) || []
+      if (!events.length) {
+        pendingRunEventsByRunId.delete(targetRunId)
+        return
+      }
+
+      events.forEach((event) => {
+        run(
+          `INSERT INTO codex_run_events (run_id, seq, event_type, payload_json, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [targetRunId, event.seq, event.eventType, event.payloadJson, event.createdAt]
+        )
+        insertedCount += 1
+      })
+
+      pendingRunEventsByRunId.delete(targetRunId)
+    })
+  })
+
+  if (!pendingRunEventsByRunId.size) {
+    clearPendingRunEventsFlushTimer()
+  }
+
+  return insertedCount
+}
+
+function schedulePendingRunEventsFlush() {
+  if (pendingRunEventsFlushTimer) {
+    return
+  }
+
+  pendingRunEventsFlushTimer = setTimeout(() => {
+    pendingRunEventsFlushTimer = null
+    flushPendingRunEvents()
+  }, EVENT_FLUSH_DELAY_MS)
+  pendingRunEventsFlushTimer.unref?.()
+}
+
 export function isTerminalRunStatus(status = '') {
   return TERMINAL_RUN_STATUSES.has(String(status || '').trim())
 }
 
 export function getCodexRunById(runId, options = {}) {
+  flushPendingRunEvents(runId)
   const row = getRunRowById(runId)
   if (!row) {
     return null
@@ -120,25 +190,63 @@ export function getCodexRunById(runId, options = {}) {
 }
 
 export function listTaskCodexRuns(taskSlug, limit = 20) {
+  return listTaskCodexRunsWithOptions(taskSlug, { limit })
+}
+
+export function listTaskCodexRunsWithOptions(taskSlug, options = {}) {
   const task = getTaskRowBySlug(taskSlug)
   if (!task) {
     return null
   }
 
+  flushPendingRunEvents()
+  const includeEvents = Boolean(options.includeEvents)
+  const limit = Math.max(1, Number(options.limit) || 20)
   const rows = all(
-    `SELECT id, task_slug, session_id, prompt, status, response_message, error_message, created_at, updated_at, started_at, finished_at
+    `SELECT
+       runs.id,
+       runs.task_slug,
+       runs.session_id,
+       runs.prompt,
+       runs.status,
+       runs.response_message,
+       runs.error_message,
+       runs.created_at,
+       runs.updated_at,
+       runs.started_at,
+       runs.finished_at,
+       COUNT(events.id) AS event_count,
+       MAX(events.seq) AS last_event_seq
      FROM codex_runs
-     WHERE task_slug = ?
-     ORDER BY created_at DESC
+     AS runs
+     LEFT JOIN codex_run_events AS events
+       ON events.run_id = runs.id
+     WHERE runs.task_slug = ?
+     GROUP BY
+       runs.id,
+       runs.task_slug,
+       runs.session_id,
+       runs.prompt,
+       runs.status,
+       runs.response_message,
+       runs.error_message,
+       runs.created_at,
+       runs.updated_at,
+       runs.started_at,
+       runs.finished_at
+     ORDER BY runs.created_at DESC
      LIMIT ?`,
-    [task.slug, Math.max(1, Number(limit) || 20)]
+    [task.slug, limit]
   )
 
-  const eventsByRunId = loadEventsForRunIds(rows.map((row) => row.id))
+  const eventsByRunId = includeEvents
+    ? loadEventsForRunIds(rows.map((row) => row.id))
+    : new Map()
   return rows.map((row) => toCodexRun(row, eventsByRunId.get(row.id) || []))
 }
 
 export function listCodexRunEvents(runId, options = {}) {
+  flushPendingRunEvents(runId)
   const targetRun = getRunRowById(runId)
   if (!targetRun) {
     return null
@@ -224,24 +332,20 @@ export function appendCodexRunEvent(runId, payloadOrSeq = {}, maybeSeqOrPayload 
     : { type: 'info', message: String(rawPayload || '') }
   const now = new Date().toISOString()
   const eventType = String(normalizedPayload.type || '').trim() || 'event'
+  const payloadJson = JSON.stringify(normalizedPayload)
 
-  transaction(() => {
-    run(
-      `INSERT INTO codex_run_events (run_id, seq, event_type, payload_json, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      [targetRun.id, seq, eventType, JSON.stringify(normalizedPayload), now]
-    )
+  const pendingEvents = pendingRunEventsByRunId.get(targetRun.id) || []
+  pendingEvents.push({
+    seq,
+    eventType,
+    payloadJson,
+    createdAt: now,
   })
+  pendingRunEventsByRunId.set(targetRun.id, pendingEvents)
+  schedulePendingRunEventsFlush()
 
   return {
-    id: Number(
-      get(
-        `SELECT id
-         FROM codex_run_events
-         WHERE run_id = ? AND seq = ?`,
-        [targetRun.id, seq]
-      )?.id || 0
-    ),
+    id: 0,
     seq,
     eventType,
     payload: normalizedPayload,
@@ -266,6 +370,10 @@ export function updateCodexRun(runId, patch = {}) {
     ? String(patch.finishedAt || '')
     : String(existing.finished_at || '')
   const updatedAt = patch.updatedAt || new Date().toISOString()
+
+  if (isTerminalRunStatus(status) || finishedAt) {
+    flushPendingRunEvents(existing.id)
+  }
 
   transaction(() => {
     run(

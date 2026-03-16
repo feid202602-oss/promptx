@@ -13,9 +13,23 @@ import {
   uploadImage,
 } from '../lib/api.js'
 import { buildCodexPrompt } from '../lib/codex.js'
-import { subscribeServerEvents } from '../lib/serverEvents.js'
+import { useWorkbenchRealtime } from './useWorkbenchRealtime.js'
 
 const ACTIVE_TASK_STORAGE_KEY = 'promptx:active-task-slug'
+const SERVER_SYNC_DELAY = 150
+
+function normalizeWorkspaceDiffSummary(summary = null) {
+  if (!summary || typeof summary !== 'object') {
+    return null
+  }
+
+  return {
+    supported: Boolean(summary.supported),
+    fileCount: Math.max(0, Number(summary.fileCount) || 0),
+    additions: Math.max(0, Number(summary.additions) || 0),
+    deletions: Math.max(0, Number(summary.deletions) || 0),
+  }
+}
 
 function cloneBlocks(blocks = []) {
   return (blocks || []).map((block) => ({
@@ -143,7 +157,7 @@ function clearRequestedTaskSlug() {
 }
 
 function toTaskSummary(taskRecord) {
-  return {
+  const summary = {
     slug: taskRecord.slug,
     title: String(taskRecord.title || ''),
     autoTitle: String(taskRecord.autoTitle || ''),
@@ -155,6 +169,12 @@ function toTaskSummary(taskRecord) {
     updatedAt: taskRecord.updatedAt || taskRecord.createdAt || new Date().toISOString(),
     createdAt: taskRecord.createdAt || taskRecord.updatedAt || new Date().toISOString(),
   }
+
+  if (Object.prototype.hasOwnProperty.call(taskRecord, 'workspaceDiffSummary')) {
+    summary.workspaceDiffSummary = normalizeWorkspaceDiffSummary(taskRecord.workspaceDiffSummary)
+  }
+
+  return summary
 }
 
 export function useWorkbenchTasks(options = {}) {
@@ -165,6 +185,7 @@ export function useWorkbenchTasks(options = {}) {
   } = options
 
   const apiBase = getApiBase()
+  const realtime = useWorkbenchRealtime()
   const editorRef = ref(null)
   const tasks = ref([])
   const taskDraftMap = ref({})
@@ -191,7 +212,8 @@ export function useWorkbenchTasks(options = {}) {
   let autoSaveTimer = null
   let savePromise = null
   let loadRequestId = 0
-  let unsubscribeServerEvents = null
+  let serverSyncTimer = null
+  let pendingServerSyncTaskSlug = null
 
   const currentTaskAutoTitle = computed(() => deriveAutoTaskTitle(draft.value.blocks))
   const currentTaskDisplayTitle = computed(() => resolveTaskDisplayTitle({
@@ -424,6 +446,13 @@ export function useWorkbenchTasks(options = {}) {
     }
   }
 
+  function clearServerSyncTimer() {
+    if (serverSyncTimer) {
+      window.clearTimeout(serverSyncTimer)
+      serverSyncTimer = null
+    }
+  }
+
   function scheduleAutoSave() {
     clearAutoSaveTimer()
     if (loadingTask.value || !currentTaskSlug.value) {
@@ -511,16 +540,26 @@ export function useWorkbenchTasks(options = {}) {
     await loadTask(currentSlug, { force: true, skipIfDirtyOnApply: true })
   }
 
-  async function handleServerEvent(event = {}) {
-    const eventType = String(event.type || '').trim()
-    if (eventType !== 'tasks.changed' && eventType !== 'runs.changed' && eventType !== 'ready') {
+  function scheduleServerRefresh(taskSlug = '') {
+    const nextTaskSlug = String(taskSlug || '').trim()
+    if (pendingServerSyncTaskSlug === null) {
+      pendingServerSyncTaskSlug = nextTaskSlug
+    } else if (pendingServerSyncTaskSlug !== nextTaskSlug) {
+      pendingServerSyncTaskSlug = ''
+    }
+
+    if (serverSyncTimer) {
       return
     }
 
-    await refreshTaskList({ silent: true })
-    await syncTaskStateAfterServerChange(
-      eventType === 'ready' ? '' : event.taskSlug
-    )
+    serverSyncTimer = window.setTimeout(async () => {
+      const taskSlug = pendingServerSyncTaskSlug
+      pendingServerSyncTaskSlug = null
+      serverSyncTimer = null
+
+      await refreshTaskList({ silent: true })
+      await syncTaskStateAfterServerChange(taskSlug || '')
+    }, SERVER_SYNC_DELAY)
   }
 
   async function hydrateTaskFromServer(slug) {
@@ -1022,14 +1061,15 @@ export function useWorkbenchTasks(options = {}) {
 
   onBeforeUnmount(() => {
     clearAutoSaveTimer()
-    unsubscribeServerEvents?.()
+    clearServerSyncTimer()
   })
 
-  if (typeof window !== 'undefined' && !unsubscribeServerEvents) {
-    unsubscribeServerEvents = subscribeServerEvents((event) => {
-      handleServerEvent(event).catch(() => {})
-    })
-  }
+  watch(
+    () => realtime.listSyncVersion.value,
+    () => {
+      scheduleServerRefresh(realtime.listSyncTaskSlug.value)
+    }
+  )
 
   return {
     buildPromptForTask,

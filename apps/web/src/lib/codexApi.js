@@ -80,9 +80,13 @@ export function updateTaskCodexSession(taskSlug, sessionId) {
 export function listTaskCodexRuns(taskSlug, options = {}) {
   const params = new URLSearchParams()
   const limit = Number(options.limit || 20)
+  const includeEvents = Boolean(options.includeEvents)
 
   if (Number.isFinite(limit) && limit > 0) {
     params.set('limit', String(limit))
+  }
+  if (includeEvents) {
+    params.set('includeEvents', 'true')
   }
 
   const query = params.toString()
@@ -96,6 +100,8 @@ export function getTaskGitDiff(taskSlug, options = {}) {
   const scope = String(options.scope || 'workspace').trim()
   const runId = String(options.runId || '').trim()
   const filePath = String(options.filePath || '').trim()
+  const includeFiles = options.includeFiles !== false
+  const includeStats = options.includeStats !== false
 
   if (scope === 'run') {
     params.set('scope', 'run')
@@ -110,6 +116,12 @@ export function getTaskGitDiff(taskSlug, options = {}) {
   }
   if (filePath) {
     params.set('filePath', filePath)
+  }
+  if (!includeFiles) {
+    params.set('includeFiles', 'false')
+  }
+  if (!includeStats) {
+    params.set('includeStats', 'false')
   }
 
   const query = params.toString()
