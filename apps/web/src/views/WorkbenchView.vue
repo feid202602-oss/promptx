@@ -27,7 +27,7 @@ const showDeleteDialog = ref(false)
 const showDiffDialog = ref(false)
 const editingTaskTitleSlug = ref('')
 const diffFocusToken = ref(0)
-const preferredDiffScope = ref('task')
+const preferredDiffScope = ref('workspace')
 const preferredDiffRunId = ref('')
 const taskDiffSummaryMap = ref({})
 const { toastMessage, flashToast, clearToast } = useToast()
@@ -94,8 +94,8 @@ const currentRenderedTask = computed(() =>
 
 usePageTitle(pageTitle)
 
-function openTaskDiff(scope = 'task', runId = '') {
-  preferredDiffScope.value = scope === 'run' ? 'run' : 'task'
+function openTaskDiff(scope = 'workspace', runId = '') {
+  preferredDiffScope.value = scope === 'run' ? 'run' : scope === 'task' ? 'task' : 'workspace'
   preferredDiffRunId.value = preferredDiffScope.value === 'run' ? String(runId || '') : ''
   showDiffDialog.value = true
   diffFocusToken.value += 1
@@ -125,7 +125,7 @@ async function refreshTaskDiffSummaries(targetSlugs = []) {
 
   await Promise.all(uniqueSlugs.map(async (slug) => {
     try {
-      const payload = await getTaskGitDiff(slug, { scope: 'task' })
+      const payload = await getTaskGitDiff(slug, { scope: 'workspace' })
       nextMap[slug] = {
         supported: Boolean(payload?.supported),
         fileCount: Math.max(0, Number(payload?.summary?.fileCount) || 0),
@@ -369,7 +369,7 @@ watch(
             <article
               v-for="task in renderedTasks"
               :key="task.slug"
-              class="group relative cursor-default rounded-sm border py-3 pl-3 pr-10 transition"
+              class="group relative cursor-default rounded-sm border px-3 py-3 transition"
               :class="task.slug === currentTaskSlug
                 ? 'border-emerald-500 bg-white text-stone-900 shadow-sm dark:border-emerald-400 dark:bg-[#332c27] dark:text-stone-100'
                 : task.sending
@@ -437,14 +437,6 @@ watch(
                   </span>
                 </div>
               </div>
-              <button
-                type="button"
-                class="absolute bottom-2 right-2 inline-flex h-6 w-6 items-center justify-center rounded-sm text-stone-500 opacity-0 transition hover:bg-red-100 hover:text-red-700 group-hover:opacity-100 focus:opacity-100 dark:text-stone-500 dark:hover:bg-red-950/20 dark:hover:text-red-200"
-                :disabled="removingTask || creatingTask || task.sending"
-                @click.stop="selectTask(task.slug); openDeleteDialog()"
-              >
-                <Trash2 class="h-3.5 w-3.5" />
-              </button>
             </article>
           </div>
         </div>
@@ -454,6 +446,15 @@ watch(
             <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />
             <span class="min-w-0 break-words">{{ error }}</span>
           </div>
+          <button
+            type="button"
+            class="tool-button inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-sm text-red-700 hover:text-red-900 dark:text-red-300 dark:hover:text-red-200"
+            :disabled="!currentTaskSlug || removingTask || creatingTask || isCurrentTaskSending"
+            @click="openDeleteDialog"
+          >
+            <Trash2 class="h-4 w-4" />
+            <span>{{ removingTask ? '删除中...' : '删除当前任务' }}</span>
+          </button>
         </div>
       </aside>
 

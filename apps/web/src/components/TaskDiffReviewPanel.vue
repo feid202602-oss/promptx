@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { Check, CircleAlert, FileDiff, FolderOpen, GitBranch, RefreshCw } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { Check, ChevronDown, ChevronUp, CircleAlert, FileDiff, FolderOpen, GitBranch, RefreshCw, Search } from 'lucide-vue-next'
 import { getTaskGitDiff, listTaskCodexRuns } from '../lib/api.js'
 import { subscribeServerEvents } from '../lib/serverEvents.js'
 import WorkbenchSelect from './WorkbenchSelect.vue'
@@ -12,7 +12,7 @@ const props = defineProps({
   },
   preferredScope: {
     type: String,
-    default: 'task',
+    default: 'workspace',
   },
   preferredRunId: {
     type: String,
@@ -28,21 +28,28 @@ const props = defineProps({
   },
 })
 
-const diffScope = ref('task')
+const diffScope = ref('workspace')
 const selectedRunId = ref('')
 const selectedFilePath = ref('')
 const statusFilter = ref('all')
+const fileSearch = ref('')
 const runs = ref([])
 const diffPayload = ref(null)
 const loading = ref(false)
 const error = ref('')
+const patchLoading = ref(false)
+const patchViewportRef = ref(null)
+const patchLineRefMap = new Map()
+const activeHunkIndex = ref(0)
 
 let loadRequestId = 0
+let patchRequestId = 0
 let unsubscribeServerEvents = null
 let lastLoadedSignature = ''
 
 function buildLoadSignature(taskSlug, scope, runId = '') {
-  return [String(taskSlug || '').trim(), scope === 'run' ? 'run' : 'task', String(runId || '').trim()].join('::')
+  const normalizedScope = scope === 'run' ? 'run' : scope === 'task' ? 'task' : 'workspace'
+  return [String(taskSlug || '').trim(), normalizedScope, String(runId || '').trim()].join('::')
 }
 
 const terminalRuns = computed(() => runs.value.filter((run) => run.completed))
@@ -64,11 +71,19 @@ const statusCounts = computed(() => {
 })
 const filteredFiles = computed(() => {
   const files = diffPayload.value?.files || []
-  if (statusFilter.value === 'all') {
-    return files
-  }
+  const normalizedQuery = String(fileSearch.value || '').trim().toLowerCase()
 
-  return files.filter((file) => normalizeFileStatus(file?.status) === statusFilter.value)
+  return files.filter((file) => {
+    if (statusFilter.value !== 'all' && normalizeFileStatus(file?.status) !== statusFilter.value) {
+      return false
+    }
+
+    if (!normalizedQuery) {
+      return true
+    }
+
+    return String(file?.path || '').toLowerCase().includes(normalizedQuery)
+  })
 })
 const selectedFile = computed(() => {
   const files = filteredFiles.value
@@ -79,9 +94,77 @@ const summaryText = computed(() => {
   return `${summary.fileCount} 个文件 / +${summary.additions} / -${summary.deletions}`
 })
 const selectedPatchLines = computed(() => parsePatchLines(selectedFile.value?.patch || ''))
+const selectedPatchHunks = computed(() =>
+  selectedPatchLines.value
+    .map((line, index) => ({ ...line, index }))
+    .filter((line) => line.kind === 'hunk')
+)
+const baselineMetaText = computed(() => {
+  const baseline = diffPayload.value?.baseline || null
+  if (!baseline?.createdAt && !baseline?.headShort) {
+    return ''
+  }
+
+  const parts = []
+  if (baseline.createdAt) {
+    parts.push(`基线时间：${new Date(baseline.createdAt).toLocaleString('zh-CN')}`)
+  }
+  if (baseline.branch) {
+    parts.push(`基线分支：${baseline.branch}`)
+  }
+  if (baseline.headShort) {
+    parts.push(`基线 commit：${baseline.headShort}`)
+  }
+  if (baseline.currentHeadShort) {
+    parts.push(`当前 HEAD：${baseline.currentHeadShort}`)
+  }
+
+  return parts.join(' · ')
+})
 
 function getRunStatusLabel(run) {
   return run?.status === 'completed' ? '已完成' : run?.status === 'error' ? '失败' : '已停止'
+}
+
+function setPatchLineRef(lineId, element) {
+  if (!lineId) {
+    return
+  }
+
+  if (element) {
+    patchLineRefMap.set(lineId, element)
+    return
+  }
+
+  patchLineRefMap.delete(lineId)
+}
+
+function scrollToHunk(index, options = {}) {
+  const hunks = selectedPatchHunks.value
+  if (!hunks.length) {
+    return
+  }
+
+  const normalizedIndex = Math.min(Math.max(0, Number(index) || 0), hunks.length - 1)
+  const target = hunks[normalizedIndex]
+  const element = patchLineRefMap.get(target.id)
+  if (!element) {
+    return
+  }
+
+  activeHunkIndex.value = normalizedIndex
+  element.scrollIntoView({
+    block: options.block || 'center',
+    behavior: options.behavior || 'smooth',
+  })
+}
+
+function jumpToAdjacentHunk(step = 1) {
+  if (!selectedPatchHunks.value.length) {
+    return
+  }
+
+  scrollToHunk(activeHunkIndex.value + step)
 }
 
 function formatRunOptionLabel(run) {
@@ -278,7 +361,7 @@ async function loadDiff() {
   try {
     await loadRuns()
 
-    const scope = diffScope.value === 'run' ? 'run' : 'task'
+    const scope = diffScope.value === 'run' ? 'run' : diffScope.value === 'task' ? 'task' : 'workspace'
     if (scope === 'run' && !selectedRunId.value) {
       diffPayload.value = {
         supported: false,
@@ -313,6 +396,62 @@ async function loadDiff() {
   } finally {
     if (currentRequestId === loadRequestId) {
       loading.value = false
+    }
+  }
+}
+
+async function loadSelectedFilePatch() {
+  const filePath = String(selectedFilePath.value || '').trim()
+  if (!props.taskSlug || !props.active || !filePath || patchLoading.value) {
+    return
+  }
+
+  const scope = diffScope.value === 'run' ? 'run' : diffScope.value === 'task' ? 'task' : 'workspace'
+  const runId = scope === 'run' ? selectedRunId.value : ''
+  const signature = buildLoadSignature(props.taskSlug, scope, runId)
+
+  const currentFile = (diffPayload.value?.files || []).find((file) => file.path === filePath)
+  if (!currentFile || currentFile.patchLoaded || currentFile.binary || currentFile.tooLarge || currentFile.message) {
+    return
+  }
+
+  const currentPatchRequestId = ++patchRequestId
+  patchLoading.value = true
+
+  try {
+    const payload = await getTaskGitDiff(props.taskSlug, {
+      scope,
+      runId,
+      filePath,
+    })
+    if (currentPatchRequestId !== patchRequestId) {
+      return
+    }
+
+    const latestSignature = buildLoadSignature(props.taskSlug, diffScope.value, diffScope.value === 'run' ? selectedRunId.value : '')
+    if (signature !== latestSignature) {
+      return
+    }
+
+    const detailedFile = (payload.files || []).find((file) => file.path === filePath)
+    if (!detailedFile || !diffPayload.value?.files) {
+      return
+    }
+
+    diffPayload.value = {
+      ...diffPayload.value,
+      baseline: payload.baseline || diffPayload.value.baseline || null,
+      warnings: payload.warnings || diffPayload.value.warnings || [],
+      files: diffPayload.value.files.map((file) => (file.path === filePath ? detailedFile : file)),
+    }
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    if (currentPatchRequestId === patchRequestId) {
+      patchLoading.value = false
+      if (String(selectedFilePath.value || '').trim() !== filePath) {
+        loadSelectedFilePatch().catch(() => {})
+      }
     }
   }
 }
@@ -356,10 +495,33 @@ watch(
 )
 
 watch(
+  () => [selectedFilePath.value, selectedPatchHunks.value.length],
+  () => {
+    activeHunkIndex.value = 0
+    patchLineRefMap.clear()
+    nextTick(() => {
+      if (selectedPatchHunks.value.length) {
+        scrollToHunk(0, { behavior: 'auto', block: 'start' })
+      } else {
+        patchViewportRef.value?.scrollTo?.({ top: 0, behavior: 'auto' })
+      }
+    })
+  }
+)
+
+watch(
+  () => selectedFilePath.value,
+  () => {
+    loadSelectedFilePatch().catch(() => {})
+  },
+  { immediate: true }
+)
+
+watch(
   () => [props.preferredScope, props.preferredRunId, props.focusToken],
   ([scope, runId, focusToken], previousValue = []) => {
     const previousFocusToken = Number(previousValue[2] || 0)
-    const nextScope = scope === 'run' ? 'run' : 'task'
+    const nextScope = scope === 'run' ? 'run' : scope === 'task' ? 'task' : 'workspace'
     const nextRunId = nextScope === 'run' && runId ? String(runId || '') : ''
     const scopeChanged = diffScope.value !== nextScope
     const runChanged = nextScope === 'run' && nextRunId && selectedRunId.value !== nextRunId
@@ -413,10 +575,18 @@ if (typeof window !== 'undefined' && !unsubscribeServerEvents) {
         <button
           type="button"
           class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
+          :class="diffScope === 'workspace' ? 'border-stone-500 bg-stone-100 text-stone-900 dark:border-[#73665c] dark:bg-[#332c27] dark:text-stone-100' : ''"
+          @click="diffScope = 'workspace'"
+        >
+          <span>当前变更</span>
+        </button>
+        <button
+          type="button"
+          class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
           :class="diffScope === 'task' ? 'border-stone-500 bg-stone-100 text-stone-900 dark:border-[#73665c] dark:bg-[#332c27] dark:text-stone-100' : ''"
           @click="diffScope = 'task'"
         >
-          <span>本任务</span>
+          <span>任务累计</span>
         </button>
         <button
           type="button"
@@ -545,6 +715,18 @@ if (typeof window !== 'undefined' && !unsubscribeServerEvents) {
             <span class="font-medium text-red-700 dark:text-red-300">-{{ diffPayload.summary?.deletions || 0 }}</span>
           </div>
         </div>
+        <p v-if="baselineMetaText" class="mt-2 break-all text-[11px] opacity-75">
+          {{ baselineMetaText }}
+        </p>
+        <div v-if="diffPayload.warnings?.length" class="mt-2 flex flex-col gap-1">
+          <p
+            v-for="warning in diffPayload.warnings"
+            :key="warning"
+            class="text-[11px] text-amber-700 dark:text-amber-300"
+          >
+            {{ warning }}
+          </p>
+        </div>
       </div>
 
       <div class="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)] overflow-hidden">
@@ -562,11 +744,21 @@ if (typeof window !== 'undefined' && !unsubscribeServerEvents) {
             </button>
           </div>
 
+          <label class="mb-3 flex items-center gap-2 rounded-sm border border-stone-300 bg-white px-3 py-2 text-xs text-stone-500 dark:border-[#453c36] dark:bg-[#26211d] dark:text-stone-400">
+            <Search class="h-3.5 w-3.5 shrink-0" />
+            <input
+              v-model="fileSearch"
+              type="text"
+              placeholder="搜索文件路径"
+              class="min-w-0 flex-1 bg-transparent text-xs text-stone-700 outline-none placeholder:text-stone-400 dark:text-stone-200 dark:placeholder:text-stone-500"
+            >
+          </label>
+
           <div v-if="!diffPayload.files.length" class="rounded-sm border border-dashed border-stone-300 px-3 py-4 text-xs text-stone-500 dark:border-[#544941] dark:text-stone-400">
             当前范围内还没有检测到代码变更。
           </div>
           <div v-else-if="!filteredFiles.length" class="rounded-sm border border-dashed border-stone-300 px-3 py-4 text-xs text-stone-500 dark:border-[#544941] dark:text-stone-400">
-            当前筛选条件下没有匹配文件。
+            当前筛选或搜索条件下没有匹配文件。
           </div>
 
           <div v-else class="space-y-2">
@@ -596,12 +788,40 @@ if (typeof window !== 'undefined' && !unsubscribeServerEvents) {
         <div class="min-h-0 overflow-hidden bg-white dark:bg-[#1f1a17]">
           <div v-if="selectedFile" class="flex h-full min-h-0 flex-col overflow-hidden">
             <div class="border-b border-stone-200 px-4 py-3 text-xs text-stone-600 dark:border-[#39312c] dark:text-stone-400">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="inline-flex rounded-sm border px-1.5 py-0.5 text-[10px]" :class="getStatusClass(selectedFile.status)">
-                  {{ getStatusLabel(selectedFile.status) }}
-                </span>
-                <span class="break-all font-medium text-stone-900 dark:text-stone-100">{{ selectedFile.path }}</span>
-                <span class="opacity-75">+{{ selectedFile.additions }} / -{{ selectedFile.deletions }}</span>
+              <div class="flex items-center gap-3">
+                <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                  <span class="inline-flex rounded-sm border px-1.5 py-0.5 text-[10px]" :class="getStatusClass(selectedFile.status)">
+                    {{ getStatusLabel(selectedFile.status) }}
+                  </span>
+                  <span class="break-all font-medium text-stone-900 dark:text-stone-100">{{ selectedFile.path }}</span>
+                  <span class="opacity-75">+{{ selectedFile.additions }} / -{{ selectedFile.deletions }}</span>
+                </div>
+                <div
+                  class="inline-flex h-8 w-[132px] shrink-0 items-center gap-1 rounded-sm border px-1.5 py-1"
+                  :class="selectedPatchHunks.length
+                    ? 'border-stone-300 bg-stone-50 dark:border-[#453c36] dark:bg-[#26211d]'
+                    : 'pointer-events-none invisible border-transparent'"
+                >
+                  <button
+                    type="button"
+                    class="inline-flex h-6 w-6 items-center justify-center rounded-sm text-stone-500 transition hover:bg-stone-200 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-400 dark:hover:bg-[#332c27] dark:hover:text-stone-100"
+                    :disabled="activeHunkIndex <= 0"
+                    @click="jumpToAdjacentHunk(-1)"
+                  >
+                    <ChevronUp class="h-4 w-4" />
+                  </button>
+                  <span class="min-w-[64px] text-center text-[11px] text-stone-600 dark:text-stone-300">
+                    改动 {{ Math.min(activeHunkIndex + 1, selectedPatchHunks.length) }}/{{ selectedPatchHunks.length }}
+                  </span>
+                  <button
+                    type="button"
+                    class="inline-flex h-6 w-6 items-center justify-center rounded-sm text-stone-500 transition hover:bg-stone-200 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-50 dark:text-stone-400 dark:hover:bg-[#332c27] dark:hover:text-stone-100"
+                    :disabled="activeHunkIndex >= selectedPatchHunks.length - 1"
+                    @click="jumpToAdjacentHunk(1)"
+                  >
+                    <ChevronDown class="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -610,13 +830,22 @@ if (typeof window !== 'undefined' && !unsubscribeServerEvents) {
                 {{ selectedFile.message }}
               </div>
             </div>
-            <div v-else-if="selectedPatchLines.length" class="flex-1 overflow-auto">
+            <div v-else-if="patchLoading && !selectedFile.patchLoaded" class="flex-1 overflow-y-auto px-4 py-4 text-sm text-stone-500 dark:text-stone-400">
+              正在加载该文件的 diff...
+            </div>
+            <div v-else-if="selectedPatchLines.length" ref="patchViewportRef" class="flex-1 overflow-auto">
               <div class="min-w-max px-4 py-4 font-mono text-[11px] leading-5">
                 <div
                   v-for="line in selectedPatchLines"
                   :key="line.id"
+                  :ref="(element) => setPatchLineRef(line.id, element)"
                   class="grid grid-cols-[56px_56px_minmax(0,1fr)]"
-                  :class="getPatchLineClass(line.kind)"
+                  :class="[
+                    getPatchLineClass(line.kind),
+                    line.kind === 'hunk' && selectedPatchHunks[activeHunkIndex]?.id === line.id
+                      ? 'ring-1 ring-inset ring-amber-300 dark:ring-[#b38a4a]'
+                      : '',
+                  ]"
                 >
                   <span class="select-none border-r border-stone-200/70 px-2 py-0.5 text-right opacity-60 dark:border-[#39312c]">
                     {{ line.oldNumber }}

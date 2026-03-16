@@ -24,6 +24,20 @@ function runGit(repoRoot = '', args = [], options = {}) {
   }
 }
 
+function runGitBuffer(repoRoot = '', args = [], options = {}) {
+  const result = spawnSync('git', ['-C', repoRoot, ...args], {
+    encoding: 'buffer',
+    maxBuffer: 8 * 1024 * 1024,
+    ...options,
+  })
+
+  return {
+    status: typeof result.status === 'number' ? result.status : 1,
+    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout || ''),
+    stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr || ''),
+  }
+}
+
 function splitNullText(value = '') {
   return String(value || '').split('\0').filter(Boolean)
 }
@@ -106,6 +120,30 @@ function resolveGitBranchLabel(repoRoot = '') {
   }
 
   return ''
+}
+
+function resolveShortOid(value = '') {
+  const text = String(value || '').trim()
+  return text ? text.slice(0, 7) : ''
+}
+
+function commitExists(repoRoot = '', oid = '') {
+  const normalizedOid = String(oid || '').trim()
+  if (!repoRoot || !normalizedOid) {
+    return false
+  }
+
+  return runGit(repoRoot, ['cat-file', '-e', `${normalizedOid}^{commit}`]).status === 0
+}
+
+function isAncestorCommit(repoRoot = '', ancestorOid = '', descendantOid = '') {
+  const normalizedAncestorOid = String(ancestorOid || '').trim()
+  const normalizedDescendantOid = String(descendantOid || '').trim()
+  if (!repoRoot || !normalizedAncestorOid || !normalizedDescendantOid) {
+    return false
+  }
+
+  return runGit(repoRoot, ['merge-base', '--is-ancestor', normalizedAncestorOid, normalizedDescendantOid]).status === 0
 }
 
 function listGitChangeEntries(repoRoot = '') {
@@ -225,6 +263,67 @@ function captureDirtySnapshots(repoRoot = '') {
   }
 }
 
+function readHeadFileState(repoRoot = '', headOid = '', filePath = '') {
+  const normalizedHeadOid = String(headOid || '').trim()
+  const normalizedPath = String(filePath || '').trim()
+  if (!repoRoot || !normalizedHeadOid || !normalizedPath) {
+    return null
+  }
+
+  const result = runGitBuffer(repoRoot, ['show', `${normalizedHeadOid}:${normalizedPath}`])
+  if (result.status !== 0) {
+    return null
+  }
+
+  const buffer = result.stdout
+  const isBinary = buffer.includes(0)
+  const tooLarge = !isBinary && buffer.length > MAX_SNAPSHOT_TEXT_BYTES
+
+  return {
+    exists: true,
+    isBinary,
+    tooLarge,
+    size: buffer.length,
+    hash: createHash(buffer),
+    text: !isBinary && !tooLarge ? buffer.toString('utf8') : '',
+  }
+}
+
+function createBaselineStateResolver(repoRoot = '', baseline = null) {
+  const cache = new Map()
+
+  return (filePath = '') => {
+    const normalizedPath = String(filePath || '').trim()
+    if (!normalizedPath) {
+      return null
+    }
+
+    if (baseline?.entries?.has(normalizedPath)) {
+      return baseline.entries.get(normalizedPath) || null
+    }
+
+    if (cache.has(normalizedPath)) {
+      return cache.get(normalizedPath)
+    }
+
+    const state = readHeadFileState(repoRoot, baseline?.headOid, normalizedPath)
+    cache.set(normalizedPath, state)
+    return state
+  }
+}
+
+function listCommittedChangeEntries(repoRoot = '', fromHeadOid = '', toHeadOid = '') {
+  const normalizedFromHeadOid = String(fromHeadOid || '').trim()
+  const normalizedToHeadOid = String(toHeadOid || '').trim()
+
+  if (!repoRoot || !normalizedFromHeadOid || !normalizedToHeadOid || normalizedFromHeadOid === normalizedToHeadOid) {
+    return new Map()
+  }
+
+  const result = runGit(repoRoot, ['diff', '--name-status', '-z', `${normalizedFromHeadOid}..${normalizedToHeadOid}`, '--'])
+  return parseTrackedDiffEntries(result.stdout)
+}
+
 function serializeState(value = {}) {
   return JSON.stringify({
     exists: Boolean(value.exists),
@@ -261,7 +360,7 @@ function parseState(value = '{}') {
 
 function loadTaskBaseline(taskSlug = '') {
   const row = get(
-    `SELECT task_slug, repo_root, head_oid, created_at, updated_at
+    `SELECT task_slug, repo_root, head_oid, branch_label, created_at, updated_at
      FROM task_git_baselines
      WHERE task_slug = ?`,
     [String(taskSlug || '').trim()]
@@ -286,6 +385,7 @@ function loadTaskBaseline(taskSlug = '') {
     taskSlug: row.task_slug,
     repoRoot: String(row.repo_root || ''),
     headOid: String(row.head_oid || ''),
+    branchLabel: String(row.branch_label || ''),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     entries,
@@ -294,7 +394,7 @@ function loadTaskBaseline(taskSlug = '') {
 
 function loadRunBaseline(runId = '') {
   const row = get(
-    `SELECT run_id, repo_root, head_oid, created_at
+    `SELECT run_id, repo_root, head_oid, branch_label, created_at
      FROM run_git_baselines
      WHERE run_id = ?`,
     [String(runId || '').trim()]
@@ -319,12 +419,13 @@ function loadRunBaseline(runId = '') {
     runId: row.run_id,
     repoRoot: String(row.repo_root || ''),
     headOid: String(row.head_oid || ''),
+    branchLabel: String(row.branch_label || ''),
     createdAt: row.created_at,
     entries,
   }
 }
 
-function saveTaskBaseline(taskSlug = '', repoRoot = '', headOid = '', entries = new Map()) {
+function saveTaskBaseline(taskSlug = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map()) {
   const now = new Date().toISOString()
   const normalizedTaskSlug = String(taskSlug || '').trim()
 
@@ -332,9 +433,9 @@ function saveTaskBaseline(taskSlug = '', repoRoot = '', headOid = '', entries = 
     run('DELETE FROM task_git_baseline_entries WHERE task_slug = ?', [normalizedTaskSlug])
     run('DELETE FROM task_git_baselines WHERE task_slug = ?', [normalizedTaskSlug])
     run(
-      `INSERT INTO task_git_baselines (task_slug, repo_root, head_oid, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      [normalizedTaskSlug, repoRoot, headOid, now, now]
+      `INSERT INTO task_git_baselines (task_slug, repo_root, head_oid, branch_label, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [normalizedTaskSlug, repoRoot, headOid, branchLabel, now, now]
     )
 
     entries.forEach((state, filePath) => {
@@ -349,7 +450,7 @@ function saveTaskBaseline(taskSlug = '', repoRoot = '', headOid = '', entries = 
   return loadTaskBaseline(normalizedTaskSlug)
 }
 
-function saveRunBaseline(runId = '', repoRoot = '', headOid = '', entries = new Map()) {
+function saveRunBaseline(runId = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map()) {
   const now = new Date().toISOString()
   const normalizedRunId = String(runId || '').trim()
 
@@ -357,9 +458,9 @@ function saveRunBaseline(runId = '', repoRoot = '', headOid = '', entries = new 
     run('DELETE FROM run_git_baseline_entries WHERE run_id = ?', [normalizedRunId])
     run('DELETE FROM run_git_baselines WHERE run_id = ?', [normalizedRunId])
     run(
-      `INSERT INTO run_git_baselines (run_id, repo_root, head_oid, created_at)
-       VALUES (?, ?, ?, ?)`,
-      [normalizedRunId, repoRoot, headOid, now]
+      `INSERT INTO run_git_baselines (run_id, repo_root, head_oid, branch_label, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [normalizedRunId, repoRoot, headOid, branchLabel, now]
     )
 
     entries.forEach((state, filePath) => {
@@ -421,7 +522,7 @@ export function captureTaskGitBaseline(taskSlug = '', cwd = '') {
   }
 
   const { headOid, snapshots } = captureDirtySnapshots(repoRoot)
-  return saveTaskBaseline(normalizedTaskSlug, repoRoot, headOid, snapshots)
+  return saveTaskBaseline(normalizedTaskSlug, repoRoot, headOid, resolveGitBranchLabel(repoRoot), snapshots)
 }
 
 export function captureRunGitBaseline(runId = '', cwd = '') {
@@ -436,7 +537,7 @@ export function captureRunGitBaseline(runId = '', cwd = '') {
   }
 
   const { headOid, snapshots } = captureDirtySnapshots(repoRoot)
-  return saveRunBaseline(normalizedRunId, repoRoot, headOid, snapshots)
+  return saveRunBaseline(normalizedRunId, repoRoot, headOid, resolveGitBranchLabel(repoRoot), snapshots)
 }
 
 function parsePatchStats(patch = '') {
@@ -459,12 +560,35 @@ function parsePatchStats(patch = '') {
   return { additions, deletions }
 }
 
-function buildPatchForFile(filePath = '', previousState = null, nextState = null) {
+function parseNumstat(output = '') {
+  const line = String(output || '')
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter(Boolean)[0] || ''
+
+  if (!line) {
+    return {
+      additions: 0,
+      deletions: 0,
+    }
+  }
+
+  const [rawAdditions, rawDeletions] = line.split('\t')
+  return {
+    additions: rawAdditions === '-' ? 0 : Math.max(0, Number(rawAdditions) || 0),
+    deletions: rawDeletions === '-' ? 0 : Math.max(0, Number(rawDeletions) || 0),
+  }
+}
+
+function buildDiffPayloadForFile(filePath = '', previousState = null, nextState = null, options = {}) {
+  const includePatch = Boolean(options.includePatch)
+
   if ((previousState?.isBinary || nextState?.isBinary)) {
     return {
       binary: true,
       tooLarge: false,
       patch: '',
+      patchLoaded: true,
       additions: 0,
       deletions: 0,
       message: '二进制文件暂不支持在线 diff 预览。',
@@ -476,6 +600,7 @@ function buildPatchForFile(filePath = '', previousState = null, nextState = null
       binary: false,
       tooLarge: true,
       patch: '',
+      patchLoaded: true,
       additions: 0,
       deletions: 0,
       message: '文件内容较大，暂不展示具体 diff。',
@@ -501,6 +626,27 @@ function buildPatchForFile(filePath = '', previousState = null, nextState = null
       fs.writeFileSync(nextPath, nextState.text || '', 'utf8')
     }
 
+    const statsResult = runGit(tempDir, [
+      'diff',
+      '--no-index',
+      '--numstat',
+      previousState?.exists ? previousPath : nullPath,
+      nextState?.exists ? nextPath : nullPath,
+    ])
+    const numstat = parseNumstat(statsResult.stdout)
+
+    if (!includePatch) {
+      return {
+        binary: false,
+        tooLarge: false,
+        patch: '',
+        patchLoaded: false,
+        additions: numstat.additions,
+        deletions: numstat.deletions,
+        message: '',
+      }
+    }
+
     const result = runGit(tempDir, [
       'diff',
       '--no-index',
@@ -524,6 +670,7 @@ function buildPatchForFile(filePath = '', previousState = null, nextState = null
         binary: false,
         tooLarge: false,
         patch: '',
+        patchLoaded: true,
         additions: stats.additions,
         deletions: stats.deletions,
         message: '',
@@ -535,6 +682,7 @@ function buildPatchForFile(filePath = '', previousState = null, nextState = null
         binary: false,
         tooLarge: true,
         patch: '',
+        patchLoaded: true,
         additions: stats.additions,
         deletions: stats.deletions,
         message: 'diff 内容较长，暂不在页面内完整展示。',
@@ -545,6 +693,7 @@ function buildPatchForFile(filePath = '', previousState = null, nextState = null
       binary: false,
       tooLarge: false,
       patch,
+      patchLoaded: true,
       additions: stats.additions,
       deletions: stats.deletions,
       message: '',
@@ -554,18 +703,14 @@ function buildPatchForFile(filePath = '', previousState = null, nextState = null
   }
 }
 
-function deriveFileStatus(previousState, nextState, currentEntry) {
-  if (previousState) {
-    if (!previousState.exists && nextState?.exists) {
-      return 'A'
-    }
-    if (previousState.exists && !nextState?.exists) {
-      return 'D'
-    }
-    return 'M'
+function deriveFileStatus(previousState, nextState) {
+  if (!previousState?.exists && nextState?.exists) {
+    return 'A'
   }
-
-  return normalizeDiffStatus(currentEntry?.status)
+  if (previousState?.exists && !nextState?.exists) {
+    return 'D'
+  }
+  return 'M'
 }
 
 function sortDiffFiles(items = []) {
@@ -584,12 +729,33 @@ function sortDiffFiles(items = []) {
   })
 }
 
+function createDiffFileEntry(filePath = '', previousState = null, nextState = null, options = {}) {
+  if (areFileStatesEqual(previousState, nextState)) {
+    return null
+  }
+
+  const patchPayload = buildDiffPayloadForFile(filePath, previousState, nextState, options)
+  return {
+    path: filePath,
+    status: deriveFileStatus(previousState, nextState),
+    additions: patchPayload.additions,
+    deletions: patchPayload.deletions,
+    binary: patchPayload.binary,
+    tooLarge: patchPayload.tooLarge,
+    patch: patchPayload.patch,
+    patchLoaded: patchPayload.patchLoaded,
+    message: patchPayload.message,
+  }
+}
+
 function createUnsupportedResult(reason = '', repoRoot = '', branch = '') {
   return {
     supported: false,
     reason,
     repoRoot,
     branch,
+    baseline: null,
+    warnings: [],
     summary: {
       fileCount: 0,
       additions: 0,
@@ -605,8 +771,64 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
     return createUnsupportedResult('任务不存在。')
   }
 
-  const scope = String(options.scope || 'task').trim() === 'run' ? 'run' : 'task'
+  const rawScope = String(options.scope || 'workspace').trim()
+  const scope = rawScope === 'run'
+    ? 'run'
+    : rawScope === 'task'
+      ? 'task'
+      : 'workspace'
   const runId = String(options.runId || '').trim()
+  const targetFilePath = String(options.filePath || '').trim()
+
+  if (scope === 'workspace') {
+    const repoRoot = resolveTaskRepoRoot(normalizedTaskSlug)
+    if (!repoRoot) {
+      return createUnsupportedResult('当前工作目录不是 Git 仓库，暂不支持代码变更审查。')
+    }
+
+    const branch = resolveGitBranchLabel(repoRoot)
+    const { headOid, entries: workingTreeEntries } = listGitChangeEntries(repoRoot)
+    const baselineStateForPath = createBaselineStateResolver(repoRoot, {
+      headOid,
+      entries: new Map(),
+    })
+    const files = []
+    let additions = 0
+    let deletions = 0
+    const candidatePaths = targetFilePath ? [targetFilePath] : [...workingTreeEntries.keys()]
+
+    candidatePaths.forEach((filePath) => {
+      const previousState = baselineStateForPath(filePath)
+      const nextState = readFileState(repoRoot, filePath)
+      const diffEntry = createDiffFileEntry(filePath, previousState, nextState, {
+        includePatch: Boolean(targetFilePath),
+      })
+      if (!diffEntry) {
+        return
+      }
+
+      additions += diffEntry.additions
+      deletions += diffEntry.deletions
+      files.push(diffEntry)
+    })
+
+    return {
+      supported: true,
+      scope,
+      runId: '',
+      repoRoot,
+      branch,
+      baseline: null,
+      warnings: [],
+      baselineCreatedAt: '',
+      summary: {
+        fileCount: files.length,
+        additions,
+        deletions,
+      },
+      files: sortDiffFiles(files),
+    }
+  }
 
   let baseline = null
   if (scope === 'run') {
@@ -641,34 +863,54 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
     return createUnsupportedResult('原工作目录已不是有效的 Git 仓库，暂时无法读取代码变更。', baseline.repoRoot)
   }
   const branch = resolveGitBranchLabel(repoRoot)
+  const currentHeadOid = resolveGitHeadOid(repoRoot)
+  const warnings = []
 
-  const currentEntries = listGitChangeEntries(repoRoot).entries
-  const candidatePaths = new Set([...baseline.entries.keys(), ...currentEntries.keys()])
+  if (baseline.headOid) {
+    if (!commitExists(repoRoot, baseline.headOid)) {
+      return createUnsupportedResult(
+        '基线对应的 commit 已不存在，仓库可能被 reset、rebase 或切换到无关历史，暂时无法准确读取该范围的代码变更。',
+        repoRoot,
+        branch
+      )
+    }
+
+    if (baseline.branchLabel && branch && baseline.branchLabel !== branch) {
+      warnings.push(`当前分支已从 ${baseline.branchLabel} 切换到 ${branch}`)
+    }
+
+    if (currentHeadOid && baseline.headOid !== currentHeadOid && !isAncestorCommit(repoRoot, baseline.headOid, currentHeadOid)) {
+      warnings.push('当前 HEAD 已不在基线 commit 的后续历史中，仓库可能经历了 reset、rebase 或切分支')
+    }
+  }
+
+  const { entries: workingTreeEntries } = listGitChangeEntries(repoRoot)
+  const baselineStateForPath = createBaselineStateResolver(repoRoot, baseline)
   const files = []
   let additions = 0
   let deletions = 0
 
+  const candidatePaths = targetFilePath
+    ? [targetFilePath]
+    : new Set([
+      ...baseline.entries.keys(),
+      ...listCommittedChangeEntries(repoRoot, baseline.headOid, currentHeadOid).keys(),
+      ...workingTreeEntries.keys(),
+    ])
+
   candidatePaths.forEach((filePath) => {
-    const previousState = baseline.entries.get(filePath) || null
+    const previousState = baselineStateForPath(filePath)
     const nextState = readFileState(repoRoot, filePath)
-    if (areFileStatesEqual(previousState, nextState)) {
+    const diffEntry = createDiffFileEntry(filePath, previousState, nextState, {
+      includePatch: Boolean(targetFilePath),
+    })
+    if (!diffEntry) {
       return
     }
 
-    const patchPayload = buildPatchForFile(filePath, previousState, nextState)
-    additions += patchPayload.additions
-    deletions += patchPayload.deletions
-
-    files.push({
-      path: filePath,
-      status: deriveFileStatus(previousState, nextState, currentEntries.get(filePath)),
-      additions: patchPayload.additions,
-      deletions: patchPayload.deletions,
-      binary: patchPayload.binary,
-      tooLarge: patchPayload.tooLarge,
-      patch: patchPayload.patch,
-      message: patchPayload.message,
-    })
+    additions += diffEntry.additions
+    deletions += diffEntry.deletions
+    files.push(diffEntry)
   })
 
   return {
@@ -677,6 +919,15 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
     runId: scope === 'run' ? runId : '',
     repoRoot,
     branch,
+    baseline: {
+      createdAt: baseline.createdAt,
+      headOid: baseline.headOid,
+      headShort: resolveShortOid(baseline.headOid),
+      branch: baseline.branchLabel || '',
+      currentHeadOid,
+      currentHeadShort: resolveShortOid(currentHeadOid),
+    },
+    warnings,
     baselineCreatedAt: baseline.createdAt,
     summary: {
       fileCount: files.length,

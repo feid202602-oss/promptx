@@ -134,6 +134,7 @@ function ensureSchema() {
       task_slug TEXT PRIMARY KEY,
       repo_root TEXT NOT NULL,
       head_oid TEXT NOT NULL DEFAULT '',
+      branch_label TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (task_slug) REFERENCES tasks(slug) ON DELETE CASCADE
@@ -154,6 +155,7 @@ function ensureSchema() {
       run_id TEXT PRIMARY KEY,
       repo_root TEXT NOT NULL,
       head_oid TEXT NOT NULL DEFAULT '',
+      branch_label TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       FOREIGN KEY (run_id) REFERENCES codex_runs(id) ON DELETE CASCADE
     );
@@ -192,6 +194,18 @@ function ensureSchema() {
     db.run(`CREATE INDEX IF NOT EXISTS idx_tasks_codex_session_id ON tasks(codex_session_id)`)
   } catch {
     // Column may not be ready yet on broken legacy schema.
+  }
+
+  try {
+    db.run(`ALTER TABLE task_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`)
+  } catch {
+    // Column already exists.
+  }
+
+  try {
+    db.run(`ALTER TABLE run_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`)
+  } catch {
+    // Column already exists.
   }
 
   try {

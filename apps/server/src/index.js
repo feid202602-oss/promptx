@@ -613,14 +613,15 @@ app.get('/api/tasks/:slug/git-diff', async (request, reply) => {
     return reply.code(404).send({ message: '任务不存在。' })
   }
 
-  const scope = String(request.query?.scope || 'task').trim()
-  if (scope !== 'task' && scope !== 'run') {
+  const scope = String(request.query?.scope || 'workspace').trim()
+  if (scope !== 'workspace' && scope !== 'task' && scope !== 'run') {
     return reply.code(400).send({ message: '无效的 diff 范围。' })
   }
 
   return getTaskGitDiffReview(request.params.slug, {
     scope,
     runId: request.query?.runId,
+    filePath: request.query?.filePath,
   })
 })
 

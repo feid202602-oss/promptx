@@ -148,7 +148,7 @@ function openTurnDiff(turn) {
 
 function openTaskDiff() {
   emit('open-diff', {
-    scope: 'task',
+    scope: 'workspace',
     runId: '',
   })
 }
