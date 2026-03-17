@@ -1,0 +1,233 @@
+import { spawn, execFileSync } from 'node:child_process'
+import process from 'node:process'
+
+const DEFAULT_SERVER_PORT = 3000
+const DEFAULT_WEB_PORT = 5173
+
+function resolvePnpmCommand() {
+  return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+}
+
+function parseArgs(argv = []) {
+  const args = {
+    auto: false,
+    help: false,
+    ip: '',
+  }
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = String(argv[index] || '').trim()
+    if (!value) {
+      continue
+    }
+
+    if (value === '--auto') {
+      args.auto = true
+      continue
+    }
+
+    if (value === '--help' || value === '-h') {
+      args.help = true
+      continue
+    }
+
+    if (value === '--ip') {
+      args.ip = String(argv[index + 1] || '').trim()
+      index += 1
+      continue
+    }
+
+    if (value.startsWith('--ip=')) {
+      args.ip = value.slice('--ip='.length).trim()
+    }
+  }
+
+  return args
+}
+
+function isValidIpv4(value = '') {
+  const parts = String(value || '')
+    .trim()
+    .split('.')
+
+  if (parts.length !== 4) {
+    return false
+  }
+
+  return parts.every((part) => {
+    if (!/^\d{1,3}$/.test(part)) {
+      return false
+    }
+
+    const numeric = Number(part)
+    return numeric >= 0 && numeric <= 255
+  })
+}
+
+function printHelp() {
+  console.log(`
+PromptX Tailscale 开发启动脚本
+
+用法：
+  pnpm dev:tailscale -- --ip 100.x.x.x
+  TAILSCALE_IP=100.x.x.x pnpm dev:tailscale
+  pnpm dev:tailscale:auto
+
+可选参数：
+  --ip <ip>     手动指定 Tailscale IPv4
+  --auto        自动执行 tailscale ip -4 获取地址
+  -h, --help    显示帮助
+
+可选环境变量：
+  TAILSCALE_IP          Tailscale IPv4
+  PROMPTX_SERVER_PORT   后端端口，默认 3000
+  PROMPTX_WEB_PORT      前端端口，默认 5173
+`.trim())
+}
+
+function detectTailscaleIp() {
+  const output = execFileSync('tailscale', ['ip', '-4'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  const candidates = String(output || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  return candidates.find((value) => value.startsWith('100.')) || candidates[0] || ''
+}
+
+function resolveTailscaleIp(args) {
+  const explicitIp = String(args.ip || process.env.TAILSCALE_IP || '').trim()
+  if (explicitIp) {
+    return explicitIp
+  }
+
+  if (!args.auto) {
+    return ''
+  }
+
+  try {
+    return detectTailscaleIp()
+  } catch (error) {
+    throw new Error(
+      `自动获取 Tailscale IP 失败：${error.message || '请确认本机已安装并登录 Tailscale。'}`
+    )
+  }
+}
+
+function spawnChild(command, childArgs, options = {}) {
+  return spawn(command, childArgs, {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      ...(options.env || {}),
+    },
+  })
+}
+
+function killChild(child) {
+  if (!child || child.killed) {
+    return
+  }
+
+  if (process.platform === 'win32') {
+    child.kill()
+    return
+  }
+
+  child.kill('SIGTERM')
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2))
+
+  if (args.help) {
+    printHelp()
+    return
+  }
+
+  const tailscaleIp = resolveTailscaleIp(args)
+
+  if (!tailscaleIp) {
+    throw new Error(
+      '缺少 Tailscale IP。请使用 `TAILSCALE_IP=100.x.x.x pnpm dev:tailscale`，或直接运行 `pnpm dev:tailscale:auto`。'
+    )
+  }
+
+  if (!isValidIpv4(tailscaleIp)) {
+    throw new Error(`Tailscale IP 不合法：${tailscaleIp}`)
+  }
+
+  const serverPort = Math.max(1, Number(process.env.PORT || process.env.PROMPTX_SERVER_PORT) || DEFAULT_SERVER_PORT)
+  const webPort = Math.max(1, Number(process.env.WEB_PORT || process.env.PROMPTX_WEB_PORT) || DEFAULT_WEB_PORT)
+  const pnpmCommand = resolvePnpmCommand()
+
+  console.log(`[promptx] Tailscale IP: ${tailscaleIp}`)
+  console.log(`[promptx] Web:    http://${tailscaleIp}:${webPort}`)
+  console.log(`[promptx] Server: http://${tailscaleIp}:${serverPort}`)
+  console.log('[promptx] 按 Ctrl+C 可同时停止前后端。')
+
+  const serverProcess = spawnChild(
+    pnpmCommand,
+    ['--filter', '@promptx/server', 'dev'],
+    {
+      env: {
+        HOST: tailscaleIp,
+        PORT: String(serverPort),
+      },
+    }
+  )
+
+  const webProcess = spawnChild(
+    pnpmCommand,
+    ['--filter', '@promptx/web', 'exec', 'vite', '--host', tailscaleIp, '--port', String(webPort)],
+    {
+      env: {
+        VITE_API_PORT: String(serverPort),
+      },
+    }
+  )
+
+  const children = [serverProcess, webProcess]
+  let shuttingDown = false
+
+  const shutdown = (code = 0) => {
+    if (shuttingDown) {
+      return
+    }
+
+    shuttingDown = true
+    children.forEach(killChild)
+    setTimeout(() => {
+      process.exit(code)
+    }, 100)
+  }
+
+  process.on('SIGINT', () => shutdown(0))
+  process.on('SIGTERM', () => shutdown(0))
+
+  serverProcess.on('exit', (code, signal) => {
+    if (shuttingDown) {
+      return
+    }
+    console.error(`[promptx] 后端已退出（code=${code ?? 'null'} signal=${signal ?? 'null'}）`)
+    shutdown(Number(code) || 1)
+  })
+
+  webProcess.on('exit', (code, signal) => {
+    if (shuttingDown) {
+      return
+    }
+    console.error(`[promptx] 前端已退出（code=${code ?? 'null'} signal=${signal ?? 'null'}）`)
+    shutdown(Number(code) || 1)
+  })
+}
+
+main().catch((error) => {
+  console.error(`[promptx] ${error.message || error}`)
+  process.exitCode = 1
+})

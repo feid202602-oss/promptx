@@ -9,6 +9,8 @@
   "packageManager": "pnpm@10.15.1",
   "scripts": {
     "dev": "pnpm --parallel --filter @promptx/server --filter @promptx/web dev",
+    "dev:tailscale": "node scripts/dev-tailscale.mjs",
+    "dev:tailscale:auto": "node scripts/dev-tailscale.mjs --auto",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "smoke:realtime": "node scripts/smoke-realtime-sync.mjs"

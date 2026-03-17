@@ -52,6 +52,23 @@ pnpm dev
 
 出于安全考虑，当前默认只监听本机地址，不再开放局域网访问。
 
+如果你已经通过 Tailscale 把设备加入同一网络，也可以直接启动一个 Tailscale 可访问的开发环境：
+
+```bash
+pnpm dev:tailscale:auto
+```
+
+也支持手动指定 Tailscale IP：
+
+```bash
+TAILSCALE_IP=100.x.x.x pnpm dev:tailscale
+```
+
+常用可选环境变量：
+
+- `PROMPTX_SERVER_PORT`：后端端口，默认 `3000`
+- `PROMPTX_WEB_PORT`：前端端口，默认 `5173`
+
 ## 使用方式
 
 ### 方式 1：直接在工作台里整理并发送任务
@@ -108,6 +125,7 @@ PromptX 当前完全围绕本机 Codex 设计。
 
 ```bash
 pnpm dev
+pnpm dev:tailscale:auto
 pnpm build
 ```
 
