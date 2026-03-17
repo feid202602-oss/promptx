@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 const IGNORED_DIRECTORY_NAMES = new Set([
@@ -19,9 +20,20 @@ const IGNORED_DIRECTORY_NAMES = new Set([
   'uploads',
 ])
 
+const DIRECTORY_PICKER_HIDDEN_NAMES = new Set([
+  'Applications',
+  'Downloads',
+  'Library',
+  'Movies',
+  'Music',
+  'Pictures',
+  'Public',
+])
+
 const DEFAULT_TREE_LIMIT = 200
 const DEFAULT_SEARCH_LIMIT = 80
 const MAX_SEARCH_VISITS = 20000
+const DIRECTORY_PICKER_LIMIT = 240
 
 function createHttpError(message, statusCode = 400) {
   const error = new Error(message)
@@ -110,6 +122,21 @@ function shouldIgnoreDirectory(entry) {
   return entry?.isDirectory?.() && IGNORED_DIRECTORY_NAMES.has(entry.name)
 }
 
+function shouldIgnorePickerDirectory(entry) {
+  if (!entry?.isDirectory?.()) {
+    return false
+  }
+
+  const name = String(entry.name || '').trim()
+  if (!name) {
+    return false
+  }
+
+  return name.startsWith('.')
+    || IGNORED_DIRECTORY_NAMES.has(name)
+    || DIRECTORY_PICKER_HIDDEN_NAMES.has(name)
+}
+
 function compareWorkspaceEntries(left, right) {
   const typeDiff = Number(left.type !== 'directory') - Number(right.type !== 'directory')
   if (typeDiff) {
@@ -117,6 +144,10 @@ function compareWorkspaceEntries(left, right) {
   }
 
   return String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN')
+}
+
+function compareDirectoryEntries(left, right) {
+  return String(left.name || left.path || '').localeCompare(String(right.name || right.path || ''), 'zh-CN')
 }
 
 function buildWorkspaceItem(workspacePath, absolutePath, entry, typeOverride = '') {
@@ -138,6 +169,71 @@ function directoryHasVisibleChildren(directoryPath = '') {
   } catch {
     return false
   }
+}
+
+function directoryHasVisiblePickerChildren(directoryPath = '') {
+  try {
+    const entries = fs.readdirSync(directoryPath, { withFileTypes: true })
+    return entries.some((entry) => entry.isDirectory() && !shouldIgnorePickerDirectory(entry))
+  } catch {
+    return false
+  }
+}
+
+function createDirectoryPickerItem(directoryPath = '', entryName = '') {
+  const normalizedPath = path.resolve(String(directoryPath || ''))
+  const parsed = path.parse(normalizedPath)
+  const isRoot = normalizedPath === parsed.root
+  const displayPath = normalizedPath
+  const displayName = entryName
+    || (isRoot
+      ? (process.platform === 'win32'
+        ? normalizedPath.replace(/[\\/]+$/, '')
+        : normalizedPath)
+      : path.basename(normalizedPath))
+
+  return {
+    name: displayName || displayPath,
+    path: displayPath,
+    type: 'directory',
+    hasChildren: directoryHasVisiblePickerChildren(normalizedPath),
+    isRoot,
+  }
+}
+
+function getDirectoryPickerHomePath() {
+  return path.resolve(os.homedir())
+}
+
+function normalizeDirectoryPickerPath(input = '') {
+  const value = String(input || '').trim()
+  if (!value) {
+    return ''
+  }
+
+  const resolved = path.resolve(value)
+  if (!fs.existsSync(resolved)) {
+    throw createHttpError('目录不存在，请重新选择。', 404)
+  }
+
+  const stats = fs.statSync(resolved)
+  if (!stats.isDirectory()) {
+    throw createHttpError('只能选择文件夹。')
+  }
+
+  return resolved
+}
+
+function getDirectoryParentPath(directoryPath = '') {
+  const resolved = path.resolve(String(directoryPath || ''))
+  const parsed = path.parse(resolved)
+
+  if (resolved === parsed.root) {
+    return ''
+  }
+
+  const parentPath = path.dirname(resolved)
+  return parentPath === resolved ? '' : parentPath
 }
 
 function clampLimit(value, fallback, max) {
@@ -438,6 +534,127 @@ export function searchWorkspaceEntries(workspacePath, options = {}) {
 
   return {
     cwd: root,
+    query,
+    items: matches.slice(0, limit).map(({ score, ...item }) => item),
+    truncated: truncated || matches.length > limit,
+  }
+}
+
+export function listDirectoryPickerTree(options = {}) {
+  const targetPath = normalizeDirectoryPickerPath(options.path) || getDirectoryPickerHomePath()
+
+  const limit = clampLimit(options.limit, DIRECTORY_PICKER_LIMIT, 600)
+  const entries = fs.readdirSync(targetPath, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !shouldIgnorePickerDirectory(entry))
+    .map((entry) => createDirectoryPickerItem(path.join(targetPath, entry.name), entry.name))
+    .sort(compareDirectoryEntries)
+
+  return {
+    path: targetPath,
+    parentPath: '',
+    items: entries.slice(0, limit),
+    truncated: entries.length > limit,
+  }
+}
+
+function scoreDirectoryPickerMatch(directoryPath = '', basePath = '', query = '') {
+  const normalizedQuery = String(query || '').trim().toLowerCase()
+  if (!directoryPath || !normalizedQuery) {
+    return 0
+  }
+
+  const absoluteScore = scoreWorkspaceMatch(toPosixPath(directoryPath), normalizedQuery)
+  const base = String(basePath || '').trim()
+  const relativePath = base ? toPosixPath(path.relative(base, directoryPath)) : toPosixPath(directoryPath)
+  const relativeScore = scoreWorkspaceMatch(relativePath, normalizedQuery)
+  const nameScore = scoreSegmentMatch(path.basename(directoryPath), normalizedQuery, { isFileName: false })
+  return Math.max(absoluteScore, relativeScore, nameScore)
+}
+
+export function searchDirectoryPickerEntries(options = {}) {
+  const query = String(options.query || '').trim()
+  const limit = clampLimit(options.limit, DEFAULT_SEARCH_LIMIT, 200)
+
+  if (!query) {
+    return {
+      path: '',
+      query: '',
+      items: [],
+      truncated: false,
+    }
+  }
+
+  const targetPath = normalizeDirectoryPickerPath(options.path) || getDirectoryPickerHomePath()
+  const roots = [targetPath]
+  const matches = []
+  let visited = 0
+  let truncated = false
+
+  for (const rootPath of roots) {
+    const stack = [rootPath]
+
+    while (stack.length) {
+      const currentPath = stack.pop()
+      let entries = []
+
+      try {
+        entries = fs.readdirSync(currentPath, { withFileTypes: true })
+      } catch {
+        continue
+      }
+
+      entries.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
+
+      for (const entry of entries) {
+        if (!entry.isDirectory() || shouldIgnorePickerDirectory(entry)) {
+          continue
+        }
+
+        visited += 1
+        if (visited > MAX_SEARCH_VISITS) {
+          truncated = true
+          stack.length = 0
+          break
+        }
+
+        const absolutePath = path.join(currentPath, entry.name)
+        const score = scoreDirectoryPickerMatch(absolutePath, rootPath, query)
+        if (score > 0) {
+          matches.push({
+            ...createDirectoryPickerItem(absolutePath, entry.name),
+            score,
+          })
+        }
+
+        stack.push(absolutePath)
+      }
+
+      if (truncated) {
+        break
+      }
+    }
+
+    if (truncated) {
+      break
+    }
+  }
+
+  matches.sort((left, right) => {
+    const scoreDiff = right.score - left.score
+    if (scoreDiff) {
+      return scoreDiff
+    }
+
+    const depthDiff = left.path.split(path.sep).length - right.path.split(path.sep).length
+    if (depthDiff) {
+      return depthDiff
+    }
+
+    return String(left.path || '').localeCompare(String(right.path || ''), 'zh-CN')
+  })
+
+  return {
+    path: targetPath,
     query,
     items: matches.slice(0, limit).map(({ score, ...item }) => item),
     truncated: truncated || matches.length > limit,

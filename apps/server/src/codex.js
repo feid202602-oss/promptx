@@ -12,7 +12,7 @@ const STATE_DB_PATH = path.join(CODEX_HOME, 'state_5.sqlite')
 const TMP_DIR = path.join(CODEX_HOME, 'tmp')
 const MAX_THREAD_COUNT = 120
 const MAX_OUTPUT_TAIL_LENGTH = 64 * 1024
-const CODEX_DEFAULT_ARGS = ['--dangerously-bypass-approvals-and-sandbox']
+const CODEX_DEFAULT_ARGS = ['--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check']
 const RESOLVED_CODEX_BIN = resolveCodexBinary()
 const require = createRequire(import.meta.url)
 const sqlWasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
@@ -294,7 +294,7 @@ function normalizeManagedSession(sessionInput) {
 }
 
 function createExecArgs(session) {
-  const baseArgs = [...CODEX_DEFAULT_ARGS, ...(session.cwd ? ['-C', session.cwd] : []), 'exec']
+  const baseArgs = ['exec', ...CODEX_DEFAULT_ARGS, ...(session.cwd ? ['-C', session.cwd] : [])]
 
   if (session.codexThreadId) {
     return [...baseArgs, 'resume', session.codexThreadId, '-', '--json']

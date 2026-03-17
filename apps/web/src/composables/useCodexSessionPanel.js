@@ -482,9 +482,9 @@ export function hasTurnSummary(turn = {}) {
 
 const CODEX_ISSUE_PATTERNS = [
   {
-    type: 'trusted_directory',
-    title: '目录尚未信任',
-    summary: 'PromptX 默认以满血模式运行 Codex；如果仍出现这个错误，通常说明本机 Codex 启动参数或外部环境配置存在覆盖。',
+    type: 'startup_config',
+    title: 'Codex 启动配置冲突',
+    summary: 'PromptX 默认会附带满血模式和跳过 Git 仓库检查参数；如果仍出现这类错误，通常说明本机 Codex 包装脚本、别名或外部环境覆盖了实际启动参数。',
     patterns: [
       /not inside a trusted directory/i,
       /do you trust the contents of this directory/i,

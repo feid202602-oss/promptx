@@ -3,12 +3,14 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   Bot,
   CircleAlert,
+  FolderOpen,
   PencilLine,
   Plus,
   Trash2,
   X,
 } from 'lucide-vue-next'
 import ConfirmDialog from './ConfirmDialog.vue'
+import CodexDirectoryPickerDialog from './CodexDirectoryPickerDialog.vue'
 
 const props = defineProps({
   open: {
@@ -74,6 +76,7 @@ const creating = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
 const showDeleteDialog = ref(false)
+const showDirectoryPicker = ref(false)
 
 const sortedSessions = computed(() => sortSessions(props.sessions))
 const activeSession = computed(() => props.sessions.find((session) => session.id === editingSessionId.value) || null)
@@ -224,7 +227,7 @@ function openCreateMode() {
   editingSessionId.value = ''
   error.value = ''
   form.title = ''
-  form.cwd = String(currentSession.value?.cwd || sortedSessions.value[0]?.cwd || props.workspaces[0] || '')
+  form.cwd = ''
 }
 
 function openEditMode(sessionId) {
@@ -237,6 +240,10 @@ function openEditMode(sessionId) {
   editingSessionId.value = session.id
   error.value = ''
   syncFormFromSession(session)
+}
+
+function handleDirectoryPicked(pathValue) {
+  form.cwd = String(pathValue || '').trim()
 }
 
 function initializeDialog() {
@@ -410,6 +417,7 @@ watch(
     }
 
     window.removeEventListener('keydown', handleKeydown)
+    showDirectoryPicker.value = false
     showDeleteDialog.value = false
     error.value = ''
   }
@@ -471,6 +479,13 @@ onBeforeUnmount(() => {
           danger
           @cancel="showDeleteDialog = false"
           @confirm="handleDelete"
+        />
+        <CodexDirectoryPickerDialog
+          :open="showDirectoryPicker"
+          :initial-path="form.cwd"
+          :suggestions="workspaceSuggestions"
+          @close="showDirectoryPicker = false"
+          @select="handleDirectoryPicked"
         />
         <div class="theme-divider flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3 sm:px-5 sm:py-4">
           <div>
@@ -580,33 +595,36 @@ onBeforeUnmount(() => {
                   v-model="form.title"
                   type="text"
                   maxlength="140"
-                  placeholder="例如：yuyang-web"
+                  placeholder=""
                   class="tool-input mt-1"
                   :disabled="busy"
                 >
               </label>
 
               <label class="theme-muted-text block text-xs">
-                <span class="inline-flex items-center gap-2">
-                  <span>工作目录</span>
-                  <span
-                    v-if="mode === 'edit' && !canEditCwd"
-                    class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
+                <span>工作目录</span>
+                <div class="mt-1 flex gap-2">
+                  <input
+                    v-model="form.cwd"
+                    type="text"
+                    list="codex-manager-workspace-suggestions"
+                    placeholder=""
+                    class="tool-input min-w-0 flex-1 disabled:cursor-not-allowed disabled:opacity-80"
+                    :class="duplicateCwdMessage
+                      ? 'border-[var(--theme-warning)]'
+                      : ''"
+                    :disabled="busy || (mode === 'edit' && !canEditCwd)"
                   >
-                    已锁定
-                  </span>
-                </span>
-                <input
-                  v-model="form.cwd"
-                  type="text"
-                  list="codex-manager-workspace-suggestions"
-                  placeholder="例如：D:\\code\\yuyang-web"
-                  class="tool-input mt-1 disabled:cursor-not-allowed disabled:opacity-80"
-                  :class="duplicateCwdMessage
-                    ? 'border-[var(--theme-warning)]'
-                    : ''"
-                  :disabled="busy || (mode === 'edit' && !canEditCwd)"
-                >
+                  <button
+                    type="button"
+                    class="tool-button inline-flex shrink-0 items-center gap-2 px-3 py-2 text-xs"
+                    :disabled="busy || (mode === 'edit' && !canEditCwd)"
+                    @click="showDirectoryPicker = true"
+                  >
+                    <FolderOpen class="h-4 w-4" />
+                    <span>选择目录</span>
+                  </button>
+                </div>
                 <datalist id="codex-manager-workspace-suggestions">
                   <option v-for="item in workspaceSuggestions" :key="item" :value="item" />
                 </datalist>

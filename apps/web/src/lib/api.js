@@ -17,6 +17,8 @@ export {
   createCodexSession,
   deleteCodexSession,
   getTaskGitDiff,
+  listCodexDirectoryTree,
+  searchCodexDirectories,
   listTaskCodexRuns,
   listCodexSessionFiles,
   listCodexSessions,

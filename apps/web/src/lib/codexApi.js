@@ -10,6 +10,46 @@ export function listCodexWorkspaces() {
   return request('/api/codex/workspaces')
 }
 
+export function listCodexDirectoryTree(options = {}) {
+  const params = new URLSearchParams()
+  const targetPath = String(options.path || '').trim()
+  const limit = Number(options.limit || 0)
+
+  if (targetPath) {
+    params.set('path', targetPath)
+  }
+  if (Number.isFinite(limit) && limit > 0) {
+    params.set('limit', String(limit))
+  }
+
+  const query = params.toString()
+  return request(`/api/codex/directories/tree${query ? `?${query}` : ''}`, {
+    cache: 'no-store',
+  })
+}
+
+export function searchCodexDirectories(query, options = {}) {
+  const params = new URLSearchParams()
+  const keyword = String(query || '').trim()
+  const targetPath = String(options.path || '').trim()
+  const limit = Number(options.limit || 0)
+
+  if (keyword) {
+    params.set('q', keyword)
+  }
+  if (targetPath) {
+    params.set('path', targetPath)
+  }
+  if (Number.isFinite(limit) && limit > 0) {
+    params.set('limit', String(limit))
+  }
+
+  const search = params.toString()
+  return request(`/api/codex/directories/search${search ? `?${search}` : ''}`, {
+    cache: 'no-store',
+  })
+}
+
 export function createCodexSession(payload) {
   return request('/api/codex/sessions', {
     method: 'POST',

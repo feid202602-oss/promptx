@@ -340,7 +340,7 @@ test('streamPromptToCodexSession emits starting status for new sessions and resu
   )
 })
 
-test('streamPromptToCodexSession includes full-access codex args by default', async () => {
+test('streamPromptToCodexSession includes full-access and repo-check bypass args by default', async () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-args-'))
   const fakeBin = createFakeCodexBinary(tempHome)
 
@@ -360,8 +360,8 @@ test('streamPromptToCodexSession includes full-access codex args by default', as
       const args = JSON.parse(result.message)
 
       assert.deepEqual(
-        args.slice(0, 4),
-        ['--dangerously-bypass-approvals-and-sandbox', '-C', getSessionCwd(), 'exec']
+        args.slice(0, 5),
+        ['exec', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check', '-C', getSessionCwd()]
       )
       assert.equal(args.at(-2), '--output-last-message')
     }

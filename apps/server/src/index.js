@@ -51,7 +51,12 @@ import {
 import { createCodexRunRuntime } from './codexRunRuntime.js'
 import { importPdfBlocks } from './pdf.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
-import { listWorkspaceTree, searchWorkspaceEntries } from './workspaceFiles.js'
+import {
+  listDirectoryPickerTree,
+  listWorkspaceTree,
+  searchDirectoryPickerEntries,
+  searchWorkspaceEntries,
+} from './workspaceFiles.js'
 import { createSseHub } from './sseHub.js'
 
 const app = Fastify({ logger: true })
@@ -637,6 +642,21 @@ app.get('/api/codex/sessions', async () => ({
 app.get('/api/codex/workspaces', async () => ({
   items: listWorkspaceSuggestions(),
 }))
+
+app.get('/api/codex/directories/tree', async (request) => (
+  listDirectoryPickerTree({
+    path: request.query?.path,
+    limit: request.query?.limit,
+  })
+))
+
+app.get('/api/codex/directories/search', async (request) => (
+  searchDirectoryPickerEntries({
+    path: request.query?.path,
+    query: request.query?.q,
+    limit: request.query?.limit,
+  })
+))
 
 app.get('/api/codex/sessions/:sessionId/files/tree', async (request, reply) => {
   const session = getPromptxCodexSessionById(request.params.sessionId)
