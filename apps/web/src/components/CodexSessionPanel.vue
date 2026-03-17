@@ -424,8 +424,8 @@ defineExpose({
                     'theme-status-danger': item.kind === 'error',
                   }"
                 >
-                  <div class="font-medium">{{ item.title }}</div>
-                  <pre v-if="item.detail" class="mt-1 whitespace-pre-wrap break-all font-mono text-[11px] leading-5">{{ item.detail }}</pre>
+                  <div class="text-sm font-medium leading-6">{{ item.title }}</div>
+                  <pre v-if="item.detail" class="mt-1 whitespace-pre-wrap break-all font-mono text-[11px] leading-5 opacity-85">{{ item.detail }}</pre>
                 </div>
               </div>
               <div
