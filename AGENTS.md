@@ -38,6 +38,15 @@ pnpm dev
 - 样式采用 Tailwind 优先，并保持既定 stone 工具风：`rounded-sm`、主结构实线边框、次级强调使用虚线边框。
 - 共用逻辑优先放入 `packages/shared`，避免前后端重复实现。
 
+## 主题开发约定
+
+- 当前前端已经从简单深浅模式升级为可扩展的 themes system；新增界面或调整样式时，颜色优先走主题 token，不要重新写回大量 `dark:`、`bg-stone-*`、`text-stone-*` 这类硬编码颜色类。
+- 主题定义集中在 `apps/web/src/lib/themes.js`；主题切换与持久化在 `apps/web/src/composables/useTheme.js`；全局语义样式和 token 映射在 `apps/web/src/styles.css`。
+- 开发新主题时，优先复用现有 token 结构，不要为单个主题单独加特例逻辑；如确实缺少语义槽位，应先补 token 或语义类，再改组件。
+- 组件层尽量只处理布局、间距、字号和结构；常见颜色与状态优先复用现有语义类，例如 `panel`、`tool-button`、`tool-button-primary`、`theme-status-*`、`theme-filter-*`、`theme-empty-state`、`theme-heading`、`theme-muted-text`。
+- 新增或调整主题后，至少手动检查这些区域：工作台任务列表、会话面板、BlockEditor、Diff 面板、各类弹窗、图片预览层、下拉/浮层。
+- 主题相关改动提交前，至少运行 `pnpm build`，并确认主题切换、刷新后的持久化、文本对比度和状态色区分都正常。
+
 ## 测试要求
 
 当前还没有完整自动化测试，提交前至少完成以下检查：

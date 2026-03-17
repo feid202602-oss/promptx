@@ -306,21 +306,21 @@ defineExpose({
       @select-session="handleSelectSession"
     />
 
-    <div class="border-b border-stone-300 bg-stone-50/80 p-3 dark:border-[#342d29] dark:bg-[#221d1a]">
+    <div class="theme-divider border-b bg-[var(--theme-appPanelMuted)] p-3">
       <div class="flex flex-col gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <div class="min-w-0 shrink-0">
-            <div class="flex items-center gap-2 text-sm font-medium text-stone-900 dark:text-stone-100">
+            <div class="theme-heading flex items-center gap-2 text-sm font-medium">
               <Bot class="h-4 w-4" />
               <span>会话</span>
             </div>
-            <p v-if="helperText" class="mt-1 text-xs text-stone-500 dark:text-stone-400">{{ helperText }}</p>
+            <p v-if="helperText" class="theme-muted-text mt-1 text-xs">{{ helperText }}</p>
           </div>
 
           <div class="ml-auto flex items-center gap-2">
             <button
               type="button"
-              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs dark:border-[#4c423c] dark:bg-[#2b2521] dark:hover:bg-[#342d28]"
+              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
               :disabled="!taskSlug"
               @click="openTaskDiff"
             >
@@ -329,7 +329,7 @@ defineExpose({
             </button>
             <button
               type="button"
-              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs dark:border-[#5a4d45] dark:bg-[#342d28] dark:text-stone-100 dark:hover:bg-[#3d3530]"
+              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
               :disabled="sending || managerBusy"
               @click="openManager"
             >
@@ -354,15 +354,15 @@ defineExpose({
 
         <p
           v-if="sessionSelectionLocked"
-          class="text-xs text-stone-500 dark:text-stone-400"
+          class="theme-muted-text text-xs"
         >
           {{ sessionSelectionHelperText }}
         </p>
-        <p class="rounded-sm border border-dashed border-stone-300/80 bg-white/70 px-3 py-2 text-xs text-stone-600 dark:border-[#4e433d] dark:bg-[#2a2421] dark:text-stone-300">
+        <p class="rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] px-3 py-2 text-xs text-[var(--theme-textSecondary)]">
           {{ currentSessionSummary }}
         </p>
 
-        <p v-if="sessionError" class="inline-flex items-center gap-2 text-sm text-red-700 dark:text-red-300">
+        <p v-if="sessionError" class="theme-danger-text inline-flex items-center gap-2 text-sm">
           <CircleAlert class="h-4 w-4" />
           <span>{{ sessionError }}</span>
         </p>
@@ -373,21 +373,21 @@ defineExpose({
       <div ref="transcriptRef" class="h-full space-y-4 overflow-y-auto px-4 py-4" @scroll="handleTranscriptScroll">
         <div
           v-if="!turns.length"
-          class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500 dark:border-[#544941] dark:bg-[#2d2723] dark:text-stone-400"
+          class="theme-empty-state px-4 py-6 text-sm"
         >
           这里会显示会话执行过程和 Codex 回复。
         </div>
 
         <div v-for="turn in turns" :key="turn.id" class="space-y-3">
           <div class="flex justify-end">
-            <div class="min-w-0 w-full max-w-[92%] rounded-sm border border-dashed border-amber-400 bg-amber-100/85 px-4 py-3 text-sm text-amber-950 dark:border-[#9a7650] dark:bg-[#4a3727] dark:text-[#fff3df]">
-              <div class="flex items-center justify-between gap-3 text-xs text-amber-800/70 dark:text-amber-100/70">
+            <div class="min-w-0 w-full max-w-[92%] rounded-sm border border-dashed border-[var(--theme-promptBorder)] bg-[var(--theme-promptBg)] px-4 py-3 text-sm text-[var(--theme-promptText)]">
+              <div class="flex items-center justify-between gap-3 text-xs opacity-75">
                 <span>本轮提示词</span>
                 <div class="flex items-center gap-2">
                   <button
                     v-if="canCollapsePrompt(turn)"
                     type="button"
-                    class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/20 dark:hover:bg-black/10"
+                    class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                     @click="togglePrompt(turn)"
                   >
                     <ChevronDown v-if="isPromptCollapsed(turn)" class="h-3 w-3" />
@@ -404,7 +404,7 @@ defineExpose({
                 >{{ turn.prompt }}</pre>
                 <div
                   v-if="canCollapsePrompt(turn) && isPromptCollapsed(turn)"
-                  class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-amber-100 via-amber-100 to-amber-100/15 dark:from-[#4a3727] dark:via-[#4a3727] dark:to-[#4a3727]/15"
+                  class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[var(--theme-promptBg)] via-[var(--theme-promptBg)] to-transparent"
                 />
               </div>
             </div>
@@ -418,7 +418,7 @@ defineExpose({
                   <button
                     v-if="turn.events.length"
                     type="button"
-                    class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/20 dark:hover:bg-black/10"
+                    class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                     @click="toggleTurnEvents(turn)"
                   >
                     <ChevronDown v-if="isTurnEventsCollapsed(turn)" class="h-3 w-3" />
@@ -434,10 +434,10 @@ defineExpose({
                   :key="item.id"
                   class="rounded-sm border border-dashed px-3 py-2"
                   :class="{
-                    'border-stone-200/70 bg-white/45 dark:border-[#403832] dark:bg-[#24201d]': item.kind === 'info' || item.kind === 'command',
-                    'border-amber-200/70 bg-amber-50/45 dark:border-[#6f5d46] dark:bg-[#31271d]': item.kind === 'todo',
-                    'border-emerald-200/70 bg-emerald-50/45 dark:border-[#536a59] dark:bg-[#222d25]': item.kind === 'result',
-                    'border-red-200/70 bg-red-50/45 dark:border-[#6f4a45] dark:bg-[#32211f]': item.kind === 'error',
+                    'border-[var(--theme-borderMuted)] bg-[var(--theme-appPanelStrong)]': item.kind === 'info' || item.kind === 'command',
+                    'theme-status-warning': item.kind === 'todo',
+                    'theme-status-success': item.kind === 'result',
+                    'theme-status-danger': item.kind === 'error',
                   }"
                 >
                   <div class="font-medium">{{ item.title }}</div>
@@ -446,14 +446,14 @@ defineExpose({
               </div>
               <div
                 v-else-if="turn.events.length"
-                class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70 dark:bg-black/5"
+                class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70"
               >
                 已折叠 {{ turn.events.length }} 条过程日志
               </div>
               <p v-else class="mt-3 text-xs text-current/80">正在等待 Codex 返回事件...</p>
               <div
                 v-if="hasTurnSummary(turn)"
-                class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/15 px-3 py-2 text-xs text-current/80 dark:bg-black/5"
+                class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/15 px-3 py-2 text-xs text-current/80"
               >
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 flex-1">
@@ -477,7 +477,7 @@ defineExpose({
                   <button
                     v-if="turn.runId"
                     type="button"
-                    class="shrink-0 inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/20 dark:hover:bg-black/10"
+                    class="shrink-0 inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                     @click="openTurnDiff(turn)"
                   >
                     <FileDiff class="h-3 w-3" />
@@ -492,15 +492,15 @@ defineExpose({
             <div
               class="min-w-0 w-full max-w-[92%] rounded-sm border border-dashed px-4 py-3 text-sm leading-7"
               :class="turn.errorMessage
-                ? 'border-red-300 bg-red-50 text-red-900 dark:border-[#7b4f4a] dark:bg-[#372321] dark:text-[#f0dfdc]'
-                : 'border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-[#6b8a72] dark:bg-[#243228] dark:text-[#eef7ef]'"
+                ? 'border-[var(--theme-danger)] bg-[var(--theme-dangerSoft)] text-[var(--theme-dangerText)]'
+                : 'border-[var(--theme-responseBorder)] bg-[var(--theme-responseBg)] text-[var(--theme-responseText)]'"
             >
               <div class="flex items-center justify-between gap-3 text-xs text-current/80">
                 <span>{{ turn.errorMessage ? 'Codex 错误' : 'Codex 回复' }}</span>
                 <button
                   v-if="canCollapseResponse(turn)"
                   type="button"
-                  class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/20 dark:hover:bg-black/10"
+                  class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                   @click="toggleResponse(turn)"
                 >
                   <ChevronDown v-if="isResponseCollapsed(turn)" class="h-3 w-3" />
@@ -517,13 +517,13 @@ defineExpose({
                   v-if="canCollapseResponse(turn) && isResponseCollapsed(turn)"
                   class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t"
                   :class="turn.errorMessage
-                    ? 'from-red-50 via-red-50 to-red-50/15 dark:from-[#372321] dark:via-[#372321] dark:to-[#372321]/15'
-                    : 'from-emerald-50 via-emerald-50 to-emerald-50/15 dark:from-[#243228] dark:via-[#243228] dark:to-[#243228]/15'"
+                    ? 'from-[var(--theme-dangerSoft)] via-[var(--theme-dangerSoft)] to-transparent'
+                    : 'from-[var(--theme-responseBg)] via-[var(--theme-responseBg)] to-transparent'"
                 />
               </div>
               <div
                 v-if="turn.errorMessage && getTurnIssue(turn)?.type === 'trusted_directory'"
-                class="mt-3 rounded-sm border border-dashed border-current/25 bg-white/35 px-3 py-3 text-xs text-current/85 dark:bg-black/10"
+                class="mt-3 rounded-sm border border-dashed border-current/25 bg-[var(--theme-appPanelStrong)]/70 px-3 py-3 text-xs text-current/85"
               >
                 当前 PromptX 默认以满血模式运行 Codex；如果仍出现这个错误，请检查本机 Codex 启动参数是否被外部环境覆盖。
               </div>
@@ -535,7 +535,7 @@ defineExpose({
       <button
         v-if="hasNewerMessages"
         type="button"
-        class="tool-button absolute right-4 z-10 inline-flex items-center gap-2 border-stone-400 bg-stone-100/95 px-3 py-2 text-xs shadow-sm backdrop-blur dark:border-[#5a4d45] dark:bg-[#342d28]/95 dark:text-stone-100"
+        class="tool-button absolute right-4 z-10 inline-flex items-center gap-2 border-[var(--theme-borderStrong)] bg-[var(--theme-appOverlay)] px-3 py-2 text-xs shadow-sm backdrop-blur"
         :class="sending ? 'bottom-20' : 'bottom-4'"
         @click="scrollToBottom"
       >
@@ -546,7 +546,7 @@ defineExpose({
 
     <div
       v-if="sending"
-      class="flex shrink-0 items-center justify-between gap-3 border-t border-dashed border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-[#7f6949] dark:bg-[#392f20] dark:text-[#e5ce9a]"
+      class="theme-status-warning flex shrink-0 items-center justify-between gap-3 border-t border-dashed px-4 py-3 text-sm"
     >
       <div class="flex items-center gap-2">
         <LoaderCircle class="h-4 w-4 animate-spin" />

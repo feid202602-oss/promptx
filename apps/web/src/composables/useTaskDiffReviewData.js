@@ -327,12 +327,12 @@ export function useTaskDiffReviewData(props) {
 
   function getStatusClass(status = '') {
     if (normalizeFileStatus(status) === 'A') {
-      return 'border-emerald-300 bg-emerald-100 text-emerald-900 dark:border-[#5b7562] dark:bg-[#243228] dark:text-[#deecdf]'
+      return 'theme-status-success'
     }
     if (normalizeFileStatus(status) === 'D') {
-      return 'border-red-300 bg-red-100 text-red-900 dark:border-[#7b4f4a] dark:bg-[#372321] dark:text-[#f0dfdc]'
+      return 'theme-status-danger'
     }
-    return 'border-amber-300 bg-amber-100 text-amber-900 dark:border-[#7f6949] dark:bg-[#392f20] dark:text-[#f4ddb0]'
+    return 'theme-status-warning'
   }
 
   function getFilterLabel(filter = 'all') {
@@ -349,25 +349,25 @@ export function useTaskDiffReviewData(props) {
   }
 
   function getFilterButtonClass(filter = 'all') {
-    const activeClass = 'border-stone-500 bg-stone-100 text-stone-900 dark:border-[#73665c] dark:bg-[#332c27] dark:text-stone-100'
-    const inactiveClass = 'border-stone-300 bg-white text-stone-600 hover:bg-stone-100 dark:border-[#453c36] dark:bg-[#26211d] dark:text-stone-300 dark:hover:bg-[#2f2924]'
+    const activeClass = 'theme-filter-active'
+    const inactiveClass = 'theme-filter-idle'
     return statusFilter.value === filter ? activeClass : inactiveClass
   }
 
   function getPatchLineClass(kind = 'context') {
     if (kind === 'add') {
-      return 'bg-emerald-50 text-emerald-950 dark:bg-[#213127] dark:text-[#deecdf]'
+      return 'theme-patch-add'
     }
     if (kind === 'delete') {
-      return 'bg-red-50 text-red-950 dark:bg-[#352321] dark:text-[#f0dfdc]'
+      return 'theme-patch-delete'
     }
     if (kind === 'hunk') {
-      return 'bg-amber-50 text-amber-900 dark:bg-[#33291f] dark:text-[#f4ddb0]'
+      return 'theme-patch-hunk'
     }
     if (kind === 'meta') {
-      return 'bg-stone-50 text-stone-500 dark:bg-[#241f1b] dark:text-stone-400'
+      return 'theme-patch-meta'
     }
-    return 'text-stone-800 dark:text-stone-200'
+    return 'theme-patch-context'
   }
 
   async function loadRuns() {

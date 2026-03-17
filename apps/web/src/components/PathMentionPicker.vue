@@ -81,17 +81,17 @@ defineExpose({
     <div
       v-if="open && panelReady"
       ref="panelRef"
-      class="fixed z-40 flex flex-col overflow-hidden rounded-sm border border-stone-300 bg-white shadow-lg dark:border-stone-700 dark:bg-stone-950"
+      class="theme-popover fixed z-40 flex flex-col overflow-hidden rounded-sm border shadow-lg"
       :style="panelStyle"
     >
-      <div class="flex items-center justify-between gap-2 border-b border-dashed border-stone-300 px-2.5 py-2 dark:border-stone-700">
+      <div class="theme-divider flex items-center justify-between gap-2 border-b border-dashed px-2.5 py-2">
         <div class="flex items-center gap-1.5">
           <button
             type="button"
             class="inline-flex h-7 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
             :class="activeTab === 'search'
-              ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
-              : 'border-dashed border-stone-300 text-stone-600 hover:border-stone-400 hover:text-stone-900 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-500 dark:hover:text-stone-100'"
+              ? 'tool-button-primary'
+              : 'theme-filter-idle border-dashed'"
             @click="setActiveTab('search')"
           >
             <Search class="h-3.5 w-3.5" />
@@ -101,8 +101,8 @@ defineExpose({
             type="button"
             class="inline-flex h-7 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
             :class="activeTab === 'tree'
-              ? 'border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-950'
-              : 'border-dashed border-stone-300 text-stone-600 hover:border-stone-400 hover:text-stone-900 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-500 dark:hover:text-stone-100'"
+              ? 'tool-button-primary'
+              : 'theme-filter-idle border-dashed'"
             @click="setActiveTab('tree')"
           >
             <FolderOpen class="h-3.5 w-3.5" />
@@ -111,7 +111,7 @@ defineExpose({
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <div
-            class="inline-flex h-7 w-7 items-center justify-center text-stone-500 dark:text-stone-400"
+            class="theme-muted-text inline-flex h-7 w-7 items-center justify-center"
             :class="currentLoading ? 'opacity-100' : 'opacity-0'"
           >
             <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
@@ -129,42 +129,42 @@ defineExpose({
       <div class="min-h-0 flex-1 overflow-y-auto p-2">
         <div
           v-if="!sessionId"
-          class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-xs text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400"
+          class="theme-empty-state px-3 py-4 text-xs"
         >
           请先选择会话。
         </div>
 
         <div
           v-else-if="currentError"
-          class="rounded-sm border border-dashed border-red-300 bg-red-50 px-3 py-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
+          class="theme-status-danger rounded-sm border border-dashed px-3 py-3 text-xs"
         >
           {{ currentError }}
         </div>
 
         <div
           v-else-if="showSearchPromptState"
-          class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-xs text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400"
+          class="theme-empty-state px-3 py-4 text-xs"
         >
           输入关键词开始搜索。
         </div>
 
         <div
           v-else-if="showSearchEmptyState"
-          class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-xs text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400"
+          class="theme-empty-state px-3 py-4 text-xs"
         >
           无结果
         </div>
 
         <div
           v-else-if="showTreeEmptyState"
-          class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-xs text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400"
+          class="theme-empty-state px-3 py-4 text-xs"
         >
           空目录
         </div>
 
         <div
           v-else-if="currentLoading && !visibleItems.length"
-          class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-xs text-stone-500 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400"
+          class="theme-empty-state px-3 py-4 text-xs"
         >
           加载中...
         </div>
@@ -172,7 +172,7 @@ defineExpose({
         <div v-else-if="activeTab === 'search'" class="space-y-1">
           <div
             v-if="recentSearchItems.length"
-            class="px-1 py-0.5 text-[10px] uppercase tracking-[0.12em] text-stone-400 dark:text-stone-500"
+            class="theme-muted-text px-1 py-0.5 text-[10px] uppercase tracking-[0.12em]"
           >
             最近
           </div>
@@ -183,31 +183,31 @@ defineExpose({
             type="button"
             class="flex w-full items-start gap-2 rounded-sm border border-transparent px-2.5 py-1.5 text-left transition"
             :class="activeKey === item.path
-              ? 'bg-stone-100 dark:bg-stone-900'
-              : 'hover:bg-stone-50 dark:hover:bg-stone-900'"
+              ? 'bg-[var(--theme-appPanelInset)]'
+              : 'hover:bg-[var(--theme-appPanelMuted)]'"
             @mouseenter="activeKey = item.path"
             @click="emitSelect(item)"
           >
             <component
               :is="item.type === 'directory' ? FolderOpen : File"
-              class="mt-0.5 h-4 w-4 shrink-0 text-stone-500 dark:text-stone-400"
+              class="theme-muted-text mt-0.5 h-4 w-4 shrink-0"
             />
             <div class="min-w-0 flex-1">
               <div>
                 <span
-                  class="truncate text-[13px] text-stone-900 dark:text-stone-100"
+                  class="truncate text-[13px] text-[var(--theme-textPrimary)]"
                   v-html="getHighlightedName(item)"
                 />
               </div>
               <div
-                class="truncate font-mono text-[10px] text-stone-500 dark:text-stone-400"
+                class="theme-muted-text truncate font-mono text-[10px]"
                 v-html="getHighlightedPath(item)"
               />
             </div>
           </button>
           <div
             v-if="normalizedQuery && normalSearchItems.length"
-            class="px-1 py-0.5 text-[10px] uppercase tracking-[0.12em] text-stone-400 dark:text-stone-500"
+            class="theme-muted-text px-1 py-0.5 text-[10px] uppercase tracking-[0.12em]"
           >
             结果
           </div>
@@ -218,24 +218,24 @@ defineExpose({
             type="button"
             class="flex w-full items-start gap-2 rounded-sm border border-transparent px-2.5 py-1.5 text-left transition"
             :class="activeKey === item.path
-              ? 'bg-stone-100 dark:bg-stone-900'
-              : 'hover:bg-stone-50 dark:hover:bg-stone-900'"
+              ? 'bg-[var(--theme-appPanelInset)]'
+              : 'hover:bg-[var(--theme-appPanelMuted)]'"
             @mouseenter="activeKey = item.path"
             @click="emitSelect(item)"
           >
             <component
               :is="item.type === 'directory' ? FolderOpen : File"
-              class="mt-0.5 h-4 w-4 shrink-0 text-stone-500 dark:text-stone-400"
+              class="theme-muted-text mt-0.5 h-4 w-4 shrink-0"
             />
             <div class="min-w-0 flex-1">
               <div>
                 <span
-                  class="truncate text-[13px] text-stone-900 dark:text-stone-100"
+                  class="truncate text-[13px] text-[var(--theme-textPrimary)]"
                   v-html="getHighlightedName(item)"
                 />
               </div>
               <div
-                class="truncate font-mono text-[10px] text-stone-500 dark:text-stone-400"
+                class="theme-muted-text truncate font-mono text-[10px]"
                 v-html="getHighlightedPath(item)"
               />
             </div>
@@ -249,10 +249,10 @@ defineExpose({
             :ref="(element) => setItemRef(item.path, element)"
             class="rounded-sm border border-transparent px-1.5 py-1 transition"
             :class="activeKey === item.path
-              ? 'bg-stone-100 dark:bg-stone-900'
+              ? 'bg-[var(--theme-appPanelInset)]'
               : item.type === 'directory' && item.expanded
-                ? 'bg-stone-50 dark:bg-stone-900/70'
-                : 'hover:bg-stone-50 dark:hover:bg-stone-900'"
+                ? 'bg-[var(--theme-appPanelMuted)]'
+                : 'hover:bg-[var(--theme-appPanelMuted)]'"
             :style="{ paddingLeft: `${item.depth * 16 + 6}px` }"
             @mouseenter="activeKey = item.path"
           >
@@ -260,11 +260,11 @@ defineExpose({
               <button
                 v-if="item.type === 'directory'"
                 type="button"
-                class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-stone-500 transition hover:bg-stone-200 hover:text-stone-900 dark:text-stone-400 dark:hover:bg-stone-800 dark:hover:text-stone-100"
+                class="theme-icon-button h-5 w-5 shrink-0"
                 @click.stop="toggleDirectory(item.path)"
               >
                 <LoaderCircle v-if="item.loading" class="h-3.5 w-3.5 animate-spin" />
-                <ChevronRight v-else class="h-3.5 w-3.5 transition" :class="item.expanded ? 'rotate-90 text-stone-900 dark:text-stone-100' : ''" />
+                <ChevronRight v-else class="h-3.5 w-3.5 transition" :class="item.expanded ? 'rotate-90 text-[var(--theme-textPrimary)]' : ''" />
               </button>
               <span v-else class="block h-5 w-5 shrink-0" />
 
@@ -276,13 +276,13 @@ defineExpose({
                 <component
                   :is="item.type === 'directory' ? FolderOpen : File"
                   class="h-4 w-4 shrink-0"
-                  :class="item.type === 'directory' && item.expanded ? 'text-stone-900 dark:text-stone-100' : 'text-stone-500 dark:text-stone-400'"
+                  :class="item.type === 'directory' && item.expanded ? 'text-[var(--theme-textPrimary)]' : 'text-[var(--theme-textMuted)]'"
                 />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5">
                     <span
                       class="truncate text-[13px]"
-                      :class="item.type === 'directory' ? 'font-medium text-stone-900 dark:text-stone-100' : 'text-stone-800 dark:text-stone-100'"
+                      :class="item.type === 'directory' ? 'font-medium text-[var(--theme-textPrimary)]' : 'text-[var(--theme-textPrimary)]'"
                     >
                       {{ getDisplayName(item) }}
                     </span>

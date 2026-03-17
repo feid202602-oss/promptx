@@ -36,9 +36,11 @@ function getRuntimeStatusLabel(session) {
 }
 
 function getRuntimeStatusClass(session) {
-  return session?.running
-    ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-[#7f6949] dark:bg-[#392f20] dark:text-[#e5ce9a]'
-    : 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-[#5b7562] dark:bg-[#243228] dark:text-[#deecdf]'
+  return session?.running ? 'theme-status-warning' : 'theme-status-success'
+}
+
+function getOptionClass(selected) {
+  return selected ? 'theme-filter-active' : 'theme-filter-idle'
 }
 </script>
 
@@ -57,7 +59,7 @@ function getRuntimeStatusClass(session) {
     <template #trigger="{ selectedOption }">
       <template v-if="selectedOption">
         <div class="flex items-center gap-2 text-sm">
-          <span class="min-w-0 flex-1 truncate font-medium text-stone-900 dark:text-stone-100">
+          <span class="min-w-0 flex-1 truncate font-medium text-[var(--theme-textPrimary)]">
             {{ getSessionTitle(selectedOption) }} - {{ getSessionCwd(selectedOption) }}
           </span>
           <span class="inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]" :class="getRuntimeStatusClass(selectedOption)">
@@ -66,14 +68,14 @@ function getRuntimeStatusClass(session) {
         </div>
       </template>
       <template v-else>
-        <div class="text-sm text-stone-500 dark:text-stone-400">
+        <div class="theme-muted-text text-sm">
           {{ loading ? '正在同步会话...' : '请选择 PromptX 会话' }}
         </div>
       </template>
     </template>
 
     <template #header>
-      <div class="flex items-center justify-between gap-3 border-b border-dashed border-stone-300 px-3 py-2 text-[11px] text-stone-500 dark:border-[#544941] dark:text-stone-400">
+      <div class="theme-divider theme-muted-text flex items-center justify-between gap-3 border-b border-dashed px-3 py-2 text-[11px]">
         <span>{{ loading ? '正在同步最新会话...' : `共 ${sessions.length} 个会话` }}</span>
         <LoaderCircle v-if="loading" class="h-3.5 w-3.5 animate-spin" />
       </div>
@@ -83,15 +85,13 @@ function getRuntimeStatusClass(session) {
       <button
         type="button"
         class="w-full rounded-sm border border-dashed p-3 text-left transition"
-        :class="selected
-          ? 'border-stone-500 bg-stone-50 dark:border-[#73665c] dark:bg-[#332c27]'
-          : 'border-stone-300 bg-white hover:border-stone-500 dark:border-[#453c36] dark:bg-[#26211d] dark:hover:border-[#73665c]'"
+        :class="getOptionClass(selected)"
         @click="select"
       >
         <div class="flex items-start gap-3">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 text-sm">
-              <span class="min-w-0 flex-1 truncate font-medium text-stone-900 dark:text-stone-100">
+              <span class="min-w-0 flex-1 truncate font-medium text-[var(--theme-textPrimary)]">
                 {{ getSessionTitle(option) }} - {{ getSessionCwd(option) }}
               </span>
               <span class="inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]" :class="getRuntimeStatusClass(option)">
@@ -102,7 +102,7 @@ function getRuntimeStatusClass(session) {
 
           <Check
             v-if="selected"
-            class="mt-0.5 h-4 w-4 shrink-0 text-stone-700 dark:text-stone-200"
+            class="mt-0.5 h-4 w-4 shrink-0 text-[var(--theme-textSecondary)]"
           />
         </div>
       </button>

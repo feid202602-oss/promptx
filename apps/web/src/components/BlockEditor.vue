@@ -758,9 +758,9 @@ defineExpose({
     @dragover.prevent
     @paste="handleSurfacePaste"
   >
-    <div class="border-b border-stone-200 px-5 py-4 text-sm text-stone-600 dark:border-[#39312c] dark:text-stone-400">
+    <div class="theme-divider theme-secondary-text border-b px-5 py-4 text-sm">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <p class="inline-flex items-center gap-2 font-medium text-stone-900 dark:text-stone-100">
+        <p class="theme-heading inline-flex items-center gap-2 font-medium">
           <ScanText class="h-4 w-4" />
           <span>输入文本、图片或文件(md、pdf)</span>
         </p>
@@ -769,7 +769,7 @@ defineExpose({
         </div>
       </div>
       <div v-if="uploading" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
-        <span class="inline-flex items-center gap-1.5 rounded-sm border border-dashed border-stone-400 px-2 py-1 dark:border-[#544941]">
+        <span class="theme-status-neutral inline-flex items-center gap-1.5 rounded-sm border border-dashed px-2 py-1">
           <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
           <span>正在处理文件...</span>
         </span>
@@ -792,7 +792,7 @@ defineExpose({
             :ref="(element) => setTextRef(element, index)"
             rows="1"
             :value="block.content"
-            class="w-full resize-none border-0 bg-transparent p-0 pr-12 text-[15px] leading-8 text-stone-900 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-600"
+            class="w-full resize-none border-0 bg-transparent p-0 pr-12 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
               :placeholder="index === 0 ? '从这里开始写需求...' : '继续输入...'"
             @focus="handleTextFocus(index)"
             @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
@@ -803,7 +803,7 @@ defineExpose({
           />
           <button
             type="button"
-            class="absolute right-0 top-1 tool-button inline-flex items-center gap-1.5 px-2 py-1 text-xs text-red-700 opacity-0 transition group-hover:opacity-100 focus:opacity-100 dark:text-red-300"
+            class="tool-button theme-danger-text absolute right-0 top-1 inline-flex items-center gap-1.5 px-2 py-1 text-xs opacity-0 transition group-hover:opacity-100 focus:opacity-100"
             @click="removeBlock(index)"
           >
             <Trash2 class="h-3.5 w-3.5" />
@@ -812,9 +812,9 @@ defineExpose({
         </div>
 
         <div v-else-if="block.type === BLOCK_TYPES.IMPORTED_TEXT" class="group relative dashed-panel overflow-hidden">
-          <div class="flex items-start justify-between gap-3 border-b border-dashed border-stone-300 px-4 py-3 text-xs text-stone-600 dark:border-[#544941] dark:text-stone-400">
+          <div class="theme-divider theme-secondary-text flex items-start justify-between gap-3 border-b border-dashed px-4 py-3 text-xs">
             <div class="min-w-0 pr-24">
-              <p class="font-medium text-stone-900 dark:text-stone-100">导入文件</p>
+              <p class="theme-heading font-medium">导入文件</p>
               <p class="mt-1 truncate font-mono">{{ block.meta?.fileName || '未命名文件' }}</p>
               <p class="mt-1">{{ getImportedStats(block.content) }}</p>
             </div>
@@ -827,14 +827,14 @@ defineExpose({
                 <FileText class="h-3.5 w-3.5" />
                 <span>转普通文本</span>
               </button>
-              <button type="button" class="tool-button inline-flex items-center gap-1.5 px-2 py-1 text-xs text-red-700 dark:text-red-300" @click="removeBlock(index)">
+              <button type="button" class="tool-button theme-danger-text inline-flex items-center gap-1.5 px-2 py-1 text-xs" @click="removeBlock(index)">
                 <Trash2 class="h-3.5 w-3.5" />
                 <span>删除</span>
               </button>
             </div>
           </div>
 
-          <div v-if="block.meta?.collapsed" class="px-4 py-3 text-sm leading-7 text-stone-600 dark:text-stone-300">
+          <div v-if="block.meta?.collapsed" class="theme-secondary-text px-4 py-3 text-sm leading-7">
             {{ getImportedPreview(block.content) || '空内容' }}<span v-if="block.content.length > 180">...</span>
           </div>
 
@@ -843,7 +843,7 @@ defineExpose({
             :ref="(element) => setTextRef(element, index)"
             rows="1"
             :value="block.content"
-            class="w-full resize-none border-0 bg-transparent px-4 py-4 text-[15px] leading-8 text-stone-900 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-600"
+            class="w-full resize-none border-0 bg-transparent px-4 py-4 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
             placeholder="导入内容为空"
             @focus="handleTextFocus(index)"
             @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
@@ -857,14 +857,14 @@ defineExpose({
         <figure v-else class="group relative">
           <button
             type="button"
-            class="tool-button absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 text-xs text-red-700 opacity-0 transition group-hover:opacity-100 focus:opacity-100 dark:text-red-300"
+            class="tool-button theme-danger-text absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 text-xs opacity-0 transition group-hover:opacity-100 focus:opacity-100"
             @click="removeBlock(index)"
           >
             <Trash2 class="h-3.5 w-3.5" />
             <span>删除</span>
           </button>
-          <div class="overflow-hidden rounded-sm border border-stone-300 bg-stone-100 dark:border-[#544941] dark:bg-[#26211d]" @click="focusAfterImage(index)">
-            <div class="flex items-center gap-2 border-b border-stone-200 px-4 py-3 text-xs text-stone-500 dark:border-[#39312c] dark:text-stone-400">
+          <div class="overflow-hidden rounded-sm border border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)]" @click="focusAfterImage(index)">
+            <div class="theme-divider theme-muted-text flex items-center gap-2 border-b px-4 py-3 text-xs">
               <ImageIcon class="h-4 w-4" />
               <span>已插入图片</span>
             </div>

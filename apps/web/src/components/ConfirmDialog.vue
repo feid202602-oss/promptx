@@ -66,28 +66,26 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[70] flex items-center justify-center bg-stone-950/45 px-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm"
       @click.self="!loading && emit('cancel')"
     >
       <section class="panel w-full max-w-md overflow-hidden">
-        <div class="flex items-start justify-between gap-3 border-b border-stone-200 px-5 py-4 dark:border-stone-800">
+        <div class="theme-divider flex items-start justify-between gap-3 border-b px-5 py-4">
           <div class="flex items-start gap-3">
             <span
               class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-dashed"
-              :class="danger
-                ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300'
-                : 'border-stone-300 bg-stone-50 text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200'"
+              :class="danger ? 'theme-status-danger' : 'theme-status-neutral'"
             >
               <TriangleAlert class="h-4 w-4" />
             </span>
             <div>
-              <h2 class="text-base font-semibold text-stone-900 dark:text-stone-100">{{ title }}</h2>
-              <p v-if="description" class="mt-1 text-sm leading-6 text-stone-600 dark:text-stone-400">{{ description }}</p>
+              <h2 class="theme-heading text-base font-semibold">{{ title }}</h2>
+              <p v-if="description" class="theme-muted-text mt-1 text-sm leading-6">{{ description }}</p>
             </div>
           </div>
           <button
             type="button"
-            class="inline-flex h-8 w-8 items-center justify-center rounded-sm text-stone-400 transition hover:bg-stone-200 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-stone-800 dark:hover:text-stone-200"
+            class="theme-icon-button h-8 w-8"
             :disabled="loading"
             @click="emit('cancel')"
           >
@@ -102,7 +100,9 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="tool-button px-4 py-2 text-sm"
-            :class="danger ? 'border-red-700 bg-red-700 text-red-50 hover:bg-red-600 dark:border-red-400 dark:bg-red-400 dark:text-stone-950 dark:hover:bg-red-300' : 'tool-button-primary'"
+            :class="danger
+              ? 'border-[var(--theme-danger)] bg-[var(--theme-danger)] text-[var(--theme-textInverse)] hover:opacity-90'
+              : 'tool-button-primary'"
             :disabled="loading"
             @click="emit('confirm')"
           >

@@ -345,7 +345,7 @@ export function useWorkspacePickerData(options) {
       return escapeHtml(source)
     }
 
-    return `${escapeHtml(source.slice(0, range.start))}<mark class="rounded bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-500/25">${escapeHtml(source.slice(range.start, range.end))}</mark>${escapeHtml(source.slice(range.end))}`
+    return `${escapeHtml(source.slice(0, range.start))}<mark class="rounded bg-[var(--theme-warningSoft)] px-0.5 text-inherit">${escapeHtml(source.slice(range.start, range.end))}</mark>${escapeHtml(source.slice(range.end))}`
   }
 
   function getHighlightedName(item) {

@@ -1,10 +1,12 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
+  Blocks,
   CircleAlert,
   Copy,
   Plus,
   SendHorizontal,
+  Settings2,
   Square,
   Trash2,
   Upload,
@@ -14,7 +16,7 @@ import BlockEditor from '../components/BlockEditor.vue'
 import TaskDiffReviewDialog from '../components/TaskDiffReviewDialog.vue'
 import CodexSessionPanel from '../components/CodexSessionPanel.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
-import ThemeToggle from '../components/ThemeToggle.vue'
+import WorkbenchSettingsDialog from '../components/WorkbenchSettingsDialog.vue'
 import TopToast from '../components/TopToast.vue'
 import { usePageTitle } from '../composables/usePageTitle.js'
 import { useToast } from '../composables/useToast.js'
@@ -23,6 +25,7 @@ import { useWorkbenchTasks } from '../composables/useWorkbenchTasks.js'
 const showClearDialog = ref(false)
 const showDeleteDialog = ref(false)
 const showDiffDialog = ref(false)
+const showSettingsDialog = ref(false)
 const editingTaskTitleSlug = ref('')
 const diffFocusToken = ref(0)
 const preferredDiffScope = ref('workspace')
@@ -89,6 +92,32 @@ const currentRenderedTask = computed(() =>
 
 usePageTitle(pageTitle)
 
+function getTaskCardClass(task) {
+  if (task.slug === currentTaskSlug.value) {
+    return 'border-[var(--theme-accent)] bg-[var(--theme-appPanelStrong)] text-[var(--theme-textPrimary)] shadow-sm'
+  }
+
+  if (task.sending) {
+    return 'border-[var(--theme-warning)] bg-[var(--theme-warningSoft)] hover:bg-[var(--theme-warningSoft)]'
+  }
+
+  return 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] hover:bg-[var(--theme-appPanelHover)]'
+}
+
+function getTaskRunningBadgeClass(task) {
+  if (task.slug === currentTaskSlug.value) {
+    return 'border-[var(--theme-warning)] bg-[var(--theme-warningSoft)] text-[var(--theme-warningText)]'
+  }
+
+  return 'border-[var(--theme-warning)] bg-[var(--theme-warningSoft)] text-[var(--theme-warningText)]'
+}
+
+function getTaskWorkspaceBadgeClass(task) {
+  return task.slug === currentTaskSlug.value
+    ? 'border-[var(--theme-borderStrong)] bg-[var(--theme-appPanelStrong)] text-[var(--theme-textSecondary)]'
+    : 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] text-[var(--theme-textMuted)]'
+}
+
 function openTaskDiff(scope = 'workspace', runId = '') {
   preferredDiffScope.value = scope === 'run' ? 'run' : scope === 'task' ? 'task' : 'workspace'
   preferredDiffRunId.value = preferredDiffScope.value === 'run' ? String(runId || '') : ''
@@ -98,6 +127,14 @@ function openTaskDiff(scope = 'workspace', runId = '') {
 
 function closeTaskDiff() {
   showDiffDialog.value = false
+}
+
+function openSettingsDialog() {
+  showSettingsDialog.value = true
+}
+
+function closeSettingsDialog() {
+  showSettingsDialog.value = false
 }
 
 async function handleTaskTitleBlur() {
@@ -261,15 +298,29 @@ onBeforeUnmount(() => {
       :focus-token="diffFocusToken"
       @close="closeTaskDiff"
     />
+    <WorkbenchSettingsDialog
+      :open="showSettingsDialog"
+      @close="closeSettingsDialog"
+    />
 
     <div class="grid min-h-0 flex-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-1">
       <aside class="panel flex min-h-0 flex-col overflow-hidden">
-        <div class="border-b border-stone-200 px-4 py-4 dark:border-[#39312c]">
+        <div class="theme-divider border-b px-4 py-4">
           <div class="flex items-center justify-between gap-3">
             <div class="flex min-h-8 items-center">
-              <div class="text-sm font-medium text-stone-900 dark:text-stone-100">PromptX 工作台</div>
+              <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
+                <Blocks class="h-4 w-4" />
+                <span>PromptX 工作台</span>
+              </div>
             </div>
-            <ThemeToggle />
+            <button
+              type="button"
+              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
+              @click="openSettingsDialog"
+            >
+              <Settings2 class="h-4 w-4" />
+              <span class="hidden sm:inline">设置</span>
+            </button>
           </div>
           <button
             type="button"
@@ -283,7 +334,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          <div v-if="loadingTasks && !renderedTasks.length" class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-sm text-stone-500 dark:border-[#544941] dark:bg-[#2d2723] dark:text-stone-400">
+          <div v-if="loadingTasks && !renderedTasks.length" class="theme-empty-state px-3 py-4 text-sm">
             正在加载任务...
           </div>
 
@@ -292,17 +343,13 @@ onBeforeUnmount(() => {
               v-for="task in renderedTasks"
               :key="task.slug"
               class="group relative cursor-default rounded-sm border px-3 py-3 transition"
-              :class="task.slug === currentTaskSlug
-                ? 'border-emerald-500 bg-white text-stone-900 shadow-sm dark:border-emerald-400 dark:bg-[#332c27] dark:text-stone-100'
-                : task.sending
-                  ? 'border-amber-300 bg-amber-50/70 hover:bg-amber-50 dark:border-[#6f5a3f] dark:bg-[#312820] dark:hover:bg-[#392f26]'
-                  : 'border-stone-300 bg-stone-50 hover:bg-stone-100 dark:border-[#453c36] dark:bg-[#26211d] dark:hover:bg-[#2f2924]'"
+              :class="getTaskCardClass(task)"
               @click="selectTask(task.slug)"
             >
               <span
                 v-if="task.slug === currentTaskSlug"
                 class="absolute inset-y-2 left-0 w-1 rounded-full"
-                :class="'bg-emerald-500 dark:bg-emerald-400'"
+                :class="'bg-[var(--theme-accent)]'"
               />
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 h-5 flex-1 overflow-hidden">
@@ -312,7 +359,7 @@ onBeforeUnmount(() => {
                     type="text"
                     maxlength="140"
                     data-task-title-input="current"
-                    class="block h-5 min-h-0 w-full appearance-none border-0 bg-transparent p-0 text-left text-sm font-semibold leading-5 outline-none placeholder:text-stone-500 dark:placeholder:text-stone-400"
+                    class="block h-5 min-h-0 w-full appearance-none border-0 bg-transparent p-0 text-left text-sm font-semibold leading-5 outline-none placeholder:text-[var(--theme-textMuted)]"
                     :placeholder="draft.autoTitle || currentTaskAutoTitle || '未命名任务'"
                     @click.stop
                     @keydown.enter.prevent="$event.target.blur()"
@@ -331,9 +378,7 @@ onBeforeUnmount(() => {
                   <span
                     v-if="task.sending"
                     class="inline-flex items-center gap-1.5 rounded-sm border border-dashed px-1.5 py-0.5"
-                    :class="task.slug === currentTaskSlug
-                      ? 'border-amber-400 bg-amber-50/95 text-amber-800 dark:border-[#d0a765] dark:bg-[#4a3a29] dark:text-[#f4ddb0]'
-                      : 'border-amber-300 text-amber-700 dark:border-[#7f6949] dark:bg-[#392f20] dark:text-[#e5ce9a]'"
+                    :class="getTaskRunningBadgeClass(task)"
                   >
                     <span class="task-loading-dots" aria-hidden="true">
                       <span class="task-loading-dots__dot"></span>
@@ -351,9 +396,7 @@ onBeforeUnmount(() => {
                   <span
                     v-if="task.workspaceDiffSummary?.supported && task.workspaceDiffSummary?.fileCount"
                     class="inline-flex items-center gap-1 rounded-sm border border-dashed px-1.5 py-0.5"
-                    :class="task.slug === currentTaskSlug
-                      ? 'border-stone-400 bg-white/70 text-stone-700 dark:border-[#73665c] dark:bg-[#3a322d] dark:text-stone-200'
-                      : 'border-stone-300 text-stone-600 dark:border-[#5b514b] dark:bg-[#2d2723] dark:text-stone-300'"
+                    :class="getTaskWorkspaceBadgeClass(task)"
                   >
                     <span>{{ task.workspaceDiffSummary?.fileCount }} 文件</span>
                   </span>
@@ -363,14 +406,14 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="border-t border-stone-200 px-3 py-3 dark:border-[#39312c]">
-          <div v-if="error" class="mb-3 inline-flex min-w-0 items-start gap-2 text-xs text-red-700 dark:text-red-300">
+        <div class="theme-divider border-t px-3 py-3">
+          <div v-if="error" class="theme-danger-text mb-3 inline-flex min-w-0 items-start gap-2 text-xs">
             <CircleAlert class="mt-0.5 h-4 w-4 shrink-0" />
             <span class="min-w-0 break-words">{{ error }}</span>
           </div>
           <button
             type="button"
-            class="tool-button inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-sm text-red-700 hover:text-red-900 dark:text-red-300 dark:hover:text-red-200"
+            class="tool-button theme-danger-text theme-danger-hover inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-sm"
             :disabled="!currentTaskSlug || removingTask || creatingTask || isCurrentTaskSending"
             @click="openDeleteDialog"
           >
@@ -399,7 +442,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="min-h-0 min-w-0 overflow-hidden">
-          <section v-if="loadingTask && !draft.blocks.length" class="panel flex h-full items-center px-5 py-4 text-sm text-stone-500 dark:text-stone-400">
+          <section v-if="loadingTask && !draft.blocks.length" class="panel theme-muted-text flex h-full items-center px-5 py-4 text-sm">
             正在加载任务内容...
           </section>
           <BlockEditor

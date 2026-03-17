@@ -1,41 +1,16 @@
 <script setup>
-import { computed, onBeforeUnmount, watch } from 'vue'
-import { FileDiff, X } from 'lucide-vue-next'
-import TaskDiffReviewPanel from './TaskDiffReviewPanel.vue'
+import { onBeforeUnmount, watch } from 'vue'
+import { Settings2, X } from 'lucide-vue-next'
+import ThemeToggle from './ThemeToggle.vue'
 
 const props = defineProps({
   open: {
     type: Boolean,
     default: false,
   },
-  taskSlug: {
-    type: String,
-    default: '',
-  },
-  taskTitle: {
-    type: String,
-    default: '',
-  },
-  preferredScope: {
-    type: String,
-    default: 'task',
-  },
-  preferredRunId: {
-    type: String,
-    default: '',
-  },
-  focusToken: {
-    type: Number,
-    default: 0,
-  },
 })
 
 const emit = defineEmits(['close'])
-
-const titleText = computed(() => {
-  const taskTitle = String(props.taskTitle || '').trim()
-  return taskTitle ? `代码变更 · ${taskTitle}` : '代码变更'
-})
 
 function handleKeydown(event) {
   if (!props.open) {
@@ -70,16 +45,17 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm"
+      class="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm"
       @click.self="emit('close')"
     >
-      <section class="panel flex h-[min(90vh,960px)] w-full max-w-[min(96vw,1560px)] min-h-0 flex-col overflow-hidden">
+      <section class="panel flex w-full max-w-xl flex-col overflow-hidden">
         <div class="theme-divider flex items-start justify-between gap-4 border-b px-5 py-4">
-          <div class="min-w-0">
+          <div>
             <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
-              <FileDiff class="h-4 w-4" />
-              <span>{{ titleText }}</span>
+              <Settings2 class="h-4 w-4" />
+              <span>设置</span>
             </div>
+            <p class="theme-muted-text mt-1 text-xs leading-5">先把界面主题收到这里，后面其他偏好也可以继续往里放。</p>
           </div>
 
           <button
@@ -91,14 +67,10 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-hidden p-4">
-          <TaskDiffReviewPanel
-            :task-slug="taskSlug"
-            :active="open"
-            :preferred-scope="preferredScope"
-            :preferred-run-id="preferredRunId"
-            :focus-token="focusToken"
-          />
+        <div class="space-y-6 px-5 py-5">
+          <section class="rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
+            <ThemeToggle />
+          </section>
         </div>
       </section>
     </div>

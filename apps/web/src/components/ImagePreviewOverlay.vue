@@ -157,28 +157,28 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="currentPreviewImageUrl"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/85 p-6"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-6"
       @click="closePreview"
       @wheel="handlePreviewWheel"
     >
       <div class="absolute left-4 top-4 flex items-center gap-2" @click.stop>
         <button
           type="button"
-          class="rounded-sm border border-stone-600 bg-stone-900/80 px-3 py-2 text-sm text-stone-100 transition hover:bg-stone-800"
+          class="rounded-sm border border-white/15 bg-black/55 px-3 py-2 text-sm text-white transition hover:bg-black/70"
           @click="adjustPreviewScale(-0.1)"
         >
           缩小
         </button>
         <button
           type="button"
-          class="rounded-sm border border-stone-600 bg-stone-900/80 px-3 py-2 text-sm text-stone-100 transition hover:bg-stone-800"
+          class="rounded-sm border border-white/15 bg-black/55 px-3 py-2 text-sm text-white transition hover:bg-black/70"
           @click="resetPreviewScale"
         >
           {{ Math.round(previewScale * 100) }}%
         </button>
         <button
           type="button"
-          class="rounded-sm border border-stone-600 bg-stone-900/80 px-3 py-2 text-sm text-stone-100 transition hover:bg-stone-800"
+          class="rounded-sm border border-white/15 bg-black/55 px-3 py-2 text-sm text-white transition hover:bg-black/70"
           @click="adjustPreviewScale(0.1)"
         >
           放大
@@ -187,7 +187,7 @@ onBeforeUnmount(() => {
       <div class="absolute right-4 top-4 flex items-center gap-2" @click.stop>
         <button
           type="button"
-          class="rounded-sm border border-stone-600 bg-stone-900/80 px-3 py-2 text-sm text-stone-100 transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
+          class="rounded-sm border border-white/15 bg-black/55 px-3 py-2 text-sm text-white transition hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
           :disabled="currentPreviewIndex <= 0"
           @click="showPreviousPreview"
         >
@@ -195,7 +195,7 @@ onBeforeUnmount(() => {
         </button>
         <button
           type="button"
-          class="rounded-sm border border-stone-600 bg-stone-900/80 px-3 py-2 text-sm text-stone-100 transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
+          class="rounded-sm border border-white/15 bg-black/55 px-3 py-2 text-sm text-white transition hover:bg-black/70 disabled:cursor-not-allowed disabled:opacity-40"
           :disabled="currentPreviewIndex < 0 || currentPreviewIndex >= normalizedImages.length - 1"
           @click="showNextPreview"
         >
@@ -203,7 +203,7 @@ onBeforeUnmount(() => {
         </button>
         <button
           type="button"
-          class="rounded-sm border border-stone-600 bg-stone-900/80 px-3 py-2 text-sm text-stone-100 transition hover:bg-stone-800"
+          class="rounded-sm border border-white/15 bg-black/55 px-3 py-2 text-sm text-white transition hover:bg-black/70"
           @click="closePreview"
         >
           关闭

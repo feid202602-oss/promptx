@@ -128,9 +128,6 @@ const duplicateCwdMessage = computed(() => {
 
   return `该工作目录已被${labels}${suffix}使用，建议优先复用，避免把同一目录拆成多个会话。`
 })
-const selectionLockedMessage = computed(() =>
-  props.selectionLockReason || '该任务已有会话历史，不能再切换会话；如需使用新会话，请新建任务。'
-)
 const cwdReadonlyMessage = computed(() => {
   if (mode.value !== 'edit' || canEditCwd.value) {
     return ''
@@ -193,9 +190,7 @@ function getRuntimeStatusLabel(sessionId) {
 }
 
 function getRuntimeStatusClass(sessionId) {
-  return isSessionRunning(sessionId)
-    ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
-    : 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+  return isSessionRunning(sessionId) ? 'theme-status-warning' : 'theme-status-success'
 }
 
 function getThreadStatusLabel(session) {
@@ -203,9 +198,7 @@ function getThreadStatusLabel(session) {
 }
 
 function getThreadStatusClass(session) {
-  return session?.started
-    ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
-    : 'border-stone-300 bg-white text-stone-600 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-300'
+  return session?.started ? 'theme-status-success' : 'theme-status-neutral'
 }
 
 function formatUpdatedAt(value = '') {
@@ -462,7 +455,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 px-0 py-0 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6"
+      class="fixed inset-0 z-50 flex items-end justify-center bg-black/45 px-0 py-0 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6"
       @click.self="!busy && emit('close')"
     >
       <section class="panel flex h-full w-full max-w-5xl flex-col overflow-hidden sm:h-auto sm:max-h-[88vh]">
@@ -479,9 +472,9 @@ onBeforeUnmount(() => {
           @cancel="showDeleteDialog = false"
           @confirm="handleDelete"
         />
-        <div class="flex flex-wrap items-start justify-between gap-3 border-b border-stone-200 px-4 py-3 dark:border-stone-800 sm:px-5 sm:py-4">
+        <div class="theme-divider flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3 sm:px-5 sm:py-4">
           <div>
-            <div class="inline-flex items-center gap-2 text-sm font-medium text-stone-900 dark:text-stone-100">
+            <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
               <Bot class="h-4 w-4" />
               <span>PromptX 会话管理</span>
             </div>
@@ -490,7 +483,7 @@ onBeforeUnmount(() => {
           <div class="flex items-center gap-2">
             <button
               type="button"
-              class="inline-flex h-9 w-9 items-center justify-center rounded-sm text-stone-400 transition hover:bg-stone-200 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-stone-800 dark:hover:text-stone-200"
+              class="theme-icon-button h-9 w-9"
               :disabled="busy"
               @click="emit('close')"
             >
@@ -500,11 +493,11 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
-          <aside class="border-b border-stone-200 bg-stone-50/80 px-3 py-3 dark:border-stone-800 dark:bg-stone-950/60 sm:px-4 sm:py-4 lg:border-b-0 lg:border-r">
+          <aside class="theme-divider border-b bg-[var(--theme-appPanelMuted)] px-3 py-3 sm:px-4 sm:py-4 lg:border-b-0 lg:border-r">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <div class="text-sm font-medium text-stone-900 dark:text-stone-100">会话列表</div>
-                <p v-if="!hasSessions" class="mt-1 text-xs text-stone-500 dark:text-stone-400">
+                <div class="theme-heading text-sm font-medium">会话列表</div>
+                <p v-if="!hasSessions" class="theme-muted-text mt-1 text-xs">
                   还没有会话，先新建一个固定工作目录。
                 </p>
               </div>
@@ -525,24 +518,24 @@ onBeforeUnmount(() => {
                 :key="session.id"
                 class="relative cursor-pointer rounded-sm border p-3 transition"
                 :class="mode === 'edit' && editingSessionId === session.id
-                  ? 'border-emerald-500 bg-white shadow-sm dark:border-emerald-400 dark:bg-stone-900'
+                  ? 'border-[var(--theme-accent)] bg-[var(--theme-appPanelStrong)] shadow-sm'
                   : isSessionRunning(session.id)
-                    ? 'border-amber-300 bg-amber-50/70 hover:border-amber-400 dark:border-amber-800 dark:bg-amber-950/20 dark:hover:border-amber-700'
+                    ? 'theme-status-warning'
                     : isCurrentSession(session.id)
-                      ? 'border-sky-300 bg-sky-50/70 hover:border-sky-400 dark:border-sky-800 dark:bg-sky-950/20 dark:hover:border-sky-700'
-                      : 'border-stone-300 bg-white/70 hover:border-stone-500 hover:bg-white dark:border-stone-700 dark:bg-stone-900/70 dark:hover:border-stone-500 dark:hover:bg-stone-900'"
+                      ? 'theme-status-info'
+                      : 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] hover:border-[var(--theme-borderStrong)] hover:bg-[var(--theme-appPanel)]'"
                 @click="!busy && openEditMode(session.id)"
               >
                 <span
                   v-if="mode === 'edit' && editingSessionId === session.id"
-                  class="absolute inset-y-3 left-0 w-1 rounded-full bg-emerald-500 dark:bg-emerald-400"
+                  class="absolute inset-y-3 left-0 w-1 rounded-full bg-[var(--theme-accent)]"
                 />
                 <div class="w-full text-left">
-                  <div class="flex flex-wrap items-center gap-2 text-sm font-medium text-stone-900 dark:text-stone-100">
+                  <div class="theme-heading flex flex-wrap items-center gap-2 text-sm font-medium">
                     <span class="truncate">{{ session.title || '未命名会话' }}</span>
                     <span
                       v-if="isCurrentSession(session.id)"
-                      class="rounded-sm border border-dashed border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300"
+                      class="theme-status-info rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
                     >
                       当前
                     </span>
@@ -557,10 +550,10 @@ onBeforeUnmount(() => {
                       {{ getThreadStatusLabel(session) }}
                     </span>
                   </div>
-                  <div class="mt-2 break-all font-mono text-[11px] leading-5 text-stone-500 dark:text-stone-400">
+                  <div class="theme-muted-text mt-2 break-all font-mono text-[11px] leading-5">
                     {{ session.cwd }}
                   </div>
-                  <div class="mt-2 text-[11px] text-stone-500 dark:text-stone-400">
+                  <div class="theme-muted-text mt-2 text-[11px]">
                     最近更新：{{ formatUpdatedAt(session.updatedAt) }}
                   </div>
                 </div>
@@ -572,7 +565,7 @@ onBeforeUnmount(() => {
           <div class="min-h-0 overflow-y-auto px-4 py-4 sm:px-5">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div class="inline-flex items-center gap-2 text-sm font-medium text-stone-900 dark:text-stone-100">
+                <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
                   <PencilLine class="h-4 w-4" />
                   <span>{{ mode === 'create' ? '新建会话' : '编辑会话' }}</span>
                 </div>
@@ -581,24 +574,24 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-              <label class="block text-xs text-stone-500 dark:text-stone-400">
+              <label class="theme-muted-text block text-xs">
                 <span>会话标题（可选）</span>
                 <input
                   v-model="form.title"
                   type="text"
                   maxlength="140"
                   placeholder="例如：yuyang-web"
-                  class="mt-1 w-full rounded-sm border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100 dark:focus:border-stone-400"
+                  class="tool-input mt-1"
                   :disabled="busy"
                 >
               </label>
 
-              <label class="block text-xs text-stone-500 dark:text-stone-400">
+              <label class="theme-muted-text block text-xs">
                 <span class="inline-flex items-center gap-2">
                   <span>工作目录</span>
                   <span
                     v-if="mode === 'edit' && !canEditCwd"
-                    class="inline-flex items-center rounded-sm border border-dashed border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+                    class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
                   >
                     已锁定
                   </span>
@@ -608,35 +601,35 @@ onBeforeUnmount(() => {
                   type="text"
                   list="codex-manager-workspace-suggestions"
                   placeholder="例如：D:\\code\\yuyang-web"
-                  class="mt-1 w-full rounded-sm border bg-white px-3 py-2 text-sm text-stone-900 outline-none transition disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-500 disabled:opacity-80 dark:bg-stone-950 dark:text-stone-100 dark:disabled:border-stone-800 dark:disabled:bg-stone-900 dark:disabled:text-stone-500"
+                  class="tool-input mt-1 disabled:cursor-not-allowed disabled:opacity-80"
                   :class="duplicateCwdMessage
-                    ? 'border-amber-300 focus:border-amber-500 dark:border-amber-800 dark:focus:border-amber-500'
-                    : 'border-stone-300 focus:border-stone-500 dark:border-stone-700 dark:focus:border-stone-400'"
+                    ? 'border-[var(--theme-warning)]'
+                    : ''"
                   :disabled="busy || (mode === 'edit' && !canEditCwd)"
                 >
                 <datalist id="codex-manager-workspace-suggestions">
                   <option v-for="item in workspaceSuggestions" :key="item" :value="item" />
                 </datalist>
-                <p v-if="duplicateCwdMessage" class="mt-2 text-[11px] leading-5 text-amber-700 dark:text-amber-300">
+                <p v-if="duplicateCwdMessage" class="mt-2 text-[11px] leading-5 text-[var(--theme-warningText)]">
                   {{ duplicateCwdMessage }}
                 </p>
-                <p v-else-if="cwdReadonlyMessage" class="mt-2 text-[11px] leading-5 text-stone-500 dark:text-stone-400">
+                <p v-else-if="cwdReadonlyMessage" class="theme-muted-text mt-2 text-[11px] leading-5">
                   {{ cwdReadonlyMessage }}
                 </p>
               </label>
             </div>
 
-            <p v-if="error" class="mt-4 inline-flex items-center gap-2 text-sm text-red-700 dark:text-red-300">
+            <p v-if="error" class="theme-danger-text mt-4 inline-flex items-center gap-2 text-sm">
               <CircleAlert class="h-4 w-4" />
               <span>{{ error }}</span>
             </p>
 
-            <div class="mt-6 flex flex-col gap-3 border-t border-dashed border-stone-300 pt-4 dark:border-stone-700 sm:flex-row sm:items-center sm:justify-between">
+            <div class="theme-divider mt-6 flex flex-col gap-3 border-t border-dashed pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div class="flex flex-wrap items-center gap-2">
                 <button
                   v-if="mode === 'edit' && activeSession"
                   type="button"
-                  class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs text-red-700 hover:text-red-900 dark:text-red-300 dark:hover:text-red-200"
+                  class="tool-button theme-danger-text theme-danger-hover inline-flex items-center gap-2 px-3 py-2 text-xs"
                   :disabled="busy || sending"
                   @click="showDeleteDialog = true"
                 >

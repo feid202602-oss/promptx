@@ -168,7 +168,7 @@ onBeforeUnmount(() => {
   <div ref="rootRef" class="relative min-w-0">
     <button
       type="button"
-      class="flex w-full items-center gap-3 rounded-sm border border-stone-300 bg-white px-3 py-2 text-left transition hover:border-stone-500 focus:border-stone-500 focus:outline-none dark:border-[#544941] dark:bg-[#211c19] dark:hover:border-[#73665c] dark:focus:border-stone-400"
+      class="flex w-full items-center gap-3 rounded-sm border border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] px-3 py-2 text-left text-[var(--theme-textPrimary)] transition hover:border-[var(--theme-borderStrong)] focus:border-[var(--theme-borderStrong)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-focusRing)]"
       :class="disabled ? 'cursor-not-allowed opacity-60' : ''"
       :disabled="disabled"
       @click="toggleDropdown"
@@ -183,13 +183,13 @@ onBeforeUnmount(() => {
           :open="open"
           :loading="loading"
         >
-          <div class="text-sm text-stone-500 dark:text-stone-400">
+          <div class="theme-muted-text text-sm">
             {{ selectedOption ? String(getOptionValue(selectedOption)) : placeholder }}
           </div>
         </slot>
       </div>
 
-      <div class="flex shrink-0 items-center gap-2 text-stone-400 dark:text-stone-500">
+      <div class="theme-muted-text flex shrink-0 items-center gap-2">
         <LoaderCircle v-if="loading" class="h-4 w-4 animate-spin" />
         <ChevronDown class="h-4 w-4 transition" :class="open ? 'rotate-180' : ''" />
       </div>
@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
       <div
         v-if="open"
         ref="panelRef"
-        class="fixed z-[70] flex overflow-hidden rounded-sm border border-stone-300 bg-white shadow-sm dark:border-[#544941] dark:bg-[#28231f]"
+        class="theme-popover fixed z-[70] flex overflow-hidden rounded-sm border"
         :style="panelStyle"
       >
         <div class="flex min-h-0 w-full flex-col">
@@ -221,7 +221,7 @@ onBeforeUnmount(() => {
               >
                 <button
                   type="button"
-                  class="w-full rounded-sm border border-dashed border-stone-300 bg-white px-3 py-2 text-left text-sm hover:border-stone-500 dark:border-[#453c36] dark:bg-[#26211d] dark:hover:border-[#73665c]"
+                  class="theme-filter-idle w-full rounded-sm border border-dashed px-3 py-2 text-left text-sm"
                   @click="selectOption(option)"
                 >
                   {{ String(getOptionValue(option) ?? '') }}
@@ -233,7 +233,7 @@ onBeforeUnmount(() => {
               v-else
               name="empty"
             >
-              <div class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-sm text-stone-500 dark:border-[#544941] dark:bg-[#2d2723] dark:text-stone-400">
+              <div class="theme-empty-state px-3 py-4 text-sm">
                 {{ emptyText }}
               </div>
             </slot>
