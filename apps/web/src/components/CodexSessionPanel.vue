@@ -14,6 +14,7 @@ import {
 import CodexSessionManagerDialog from './CodexSessionManagerDialog.vue'
 import CodexSessionSelect from './CodexSessionSelect.vue'
 import { useCodexSessionPanel } from '../composables/useCodexSessionPanel.js'
+import { renderCodexMarkdown } from '../lib/codexMarkdown.js'
 
 const emit = defineEmits(['selected-session-change', 'sending-change', 'open-diff'])
 
@@ -248,6 +249,14 @@ function openTaskDiff() {
     scope: 'workspace',
     runId: '',
   })
+}
+
+function renderResponseBody(turn) {
+  if (turn?.errorMessage) {
+    return ''
+  }
+
+  return renderCodexMarkdown(turn?.responseMessage || '')
 }
 
 watch(
@@ -485,9 +494,18 @@ defineExpose({
               </div>
               <div class="relative mt-2">
                 <div
-                  class="whitespace-pre-wrap break-all"
+                  v-if="turn.errorMessage"
                   :class="canCollapseResponse(turn) && isResponseCollapsed(turn) ? COLLAPSED_PREVIEW_CLASS : ''"
-                >{{ turn.errorMessage || turn.responseMessage }}</div>
+                  class="whitespace-pre-wrap break-all"
+                >{{ turn.errorMessage }}</div>
+                <div
+                  v-else
+                  :class="[
+                    'prose-like codex-markdown',
+                    canCollapseResponse(turn) && isResponseCollapsed(turn) ? COLLAPSED_PREVIEW_CLASS : '',
+                  ]"
+                  v-html="renderResponseBody(turn)"
+                />
                 <div
                   v-if="canCollapseResponse(turn) && isResponseCollapsed(turn)"
                   class="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t"
