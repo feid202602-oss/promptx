@@ -94,11 +94,11 @@ usePageTitle(pageTitle)
 
 function getTaskCardClass(task) {
   if (task.slug === currentTaskSlug.value) {
-    return 'border-[var(--theme-accent)] bg-[var(--theme-appPanelStrong)] text-[var(--theme-textPrimary)] shadow-sm'
+    return 'border-[var(--theme-accent)] bg-[var(--theme-accentSoft)] text-[var(--theme-textPrimary)] shadow-md shadow-[color-mix(in_srgb,var(--theme-accent)_18%,transparent)]'
   }
 
   if (task.sending) {
-    return 'border-[var(--theme-warning)] bg-[var(--theme-warningSoft)] hover:bg-[var(--theme-warningSoft)]'
+    return 'border-[var(--theme-warning)] bg-[var(--theme-appPanelMuted)] hover:bg-[var(--theme-appPanelHover)]'
   }
 
   return 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] hover:bg-[var(--theme-appPanelHover)]'
