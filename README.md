@@ -1,173 +1,80 @@
 # PromptX
 
-PromptX 是一个面向需求整理与本机 AI 协作的轻量工作台。
+PromptX 是一个面向本机 AI 协作的轻量工作台。
 
-当前这版已经不是早期的“临时文档页”形态，而是以 `workbench` 为核心：左侧管理任务，中间查看 Codex 项目执行过程，右侧整理并发送上下文。
+它适合先整理需求、截图、文本、PDF、禅道 Bug 等上下文，再持续发送给本机 Codex，在同一页里查看执行过程和多轮结果。
 
-## 当前定位
+## 核心能力
 
-- 先把需求、截图、文本、PDF、禅道 Bug 等上下文整理成一个任务
-- 再把这份任务发送给本机 Codex 持续多轮处理
-- 在同一页里查看执行过程、回复、错误和中间事件
+- 左侧管理任务，中间查看项目执行过程，右侧整理输入内容
+- 支持文本、图片、`md`、`txt`、`pdf`
+- 支持为任务绑定本机项目，并持续复用同一个 Codex 线程
+- 支持查看执行过程、代码变更和最终回复
+- 支持公开页与 Raw 导出
+- 内置禅道 Chrome 扩展，可一键把 Bug 内容带入工作台
 
-## 当前能力
+## 运行前提
 
-- 工作台任务流：左侧任务列表、中间项目面板、右侧块编辑区
-- 编辑区支持文本、图片、`md` / `txt` / `pdf`
-- 任务内容自动保存，支持删除、清空、继续编辑
-- 每个任务可绑定一个 PromptX 项目
-- 支持把当前任务发送到本机 Codex，并持续复用同一个线程多轮对话
-- 实时查看 Codex 的执行过程、命令输出、待办变化和最终回复
-- 仍保留公开页和 Raw 导出，方便共享上下文
-- 禅道扩展支持一键提取 Bug 内容并打开工作台
-
-## 重要限制
-
-- 当前只支持对接 Codex，不支持 Claude、OpenAI API、Gemini 或其他模型后端
-- 当前只支持 Codex 满血模式，不支持受限模式、轻量模式或降级模式
-- 当前必须把 Codex 权限开到最大；如果权限不够，文件读写、命令执行和自动修改流程会频繁失败
-- 因为当前要求 Codex 使用最大权限，开发环境默认仅允许本机访问，不建议开放到局域网
-- 当前仍然是匿名本地工具，没有账号体系、协作权限或云端托管
-
-如果你的 Codex 运行在受限权限下，PromptX 现在这版基本不在目标支持范围内。
+- 已安装 Node，支持 `20`、`22`、`24`，推荐 `22`
+- 本机可以正常运行 `codex --version`
+- Codex 已开启高权限，并使用满血模式
 
 ## 安装
 
 ```bash
-git clone https://github.com/bravf/promptx.git
-cd promptx
-pnpm install
+npm install -g @mushayu/promptx
+promptx doctor
 ```
 
 ## 启动
 
-```bash
-pnpm dev
-```
+默认地址：
 
-默认会启动：
-
-- 前端：`http://localhost:5173`
-- 后端：`http://localhost:3000`
-
-出于安全考虑，当前默认只监听本机地址，不再开放局域网访问。
-
-如果你已经通过 Tailscale 把设备加入同一网络，也可以直接启动一个 Tailscale 可访问的开发环境：
+- `http://127.0.0.1:3000`
 
 ```bash
-pnpm dev:tailscale:auto
+promptx start
+promptx status
+promptx stop
 ```
-
-也支持手动指定 Tailscale IP：
 
 ```bash
-TAILSCALE_IP=100.x.x.x pnpm dev:tailscale
+promptx doctor
 ```
-
-常用可选环境变量：
-
-- `PROMPTX_SERVER_PORT`：后端端口，默认 `3000`
-- `PROMPTX_WEB_PORT`：前端端口，默认 `5173`
-
-如果你想像正式应用一样在后台运行，并且关闭终端后也不影响服务，可使用：
-
-```bash
-pnpm start
-pnpm status
-pnpm stop
-```
-
-说明：
-
-- `pnpm start` 会先构建前端，再在后台启动单个 Fastify 服务
-- 正式启动后统一通过 `http://127.0.0.1:3000` 访问，前端静态资源也由后端直接提供
-- 运行状态和日志默认保存在 `~/.promptx/run/`
 
 ## 使用方式
 
-### 方式 1：直接在工作台里整理并发送任务
+1. 打开工作台，新建或选择一个任务
+2. 在右侧整理文本、图片、文件等上下文
+3. 在中间选择一个 PromptX 项目
+4. 点击发送，把当前内容交给 Codex
+5. 在中间继续查看执行过程，并按需多轮发送
 
-1. 打开首页，进入 `workbench`
-2. 新建任务，或从左侧选择已有任务
-3. 在右侧编辑区录入文本、上传图片、导入文件
-4. 在中间面板选择一个 PromptX 项目
-5. 点击发送，把当前任务内容交给 Codex
-6. 在中间面板继续查看执行过程，并按需多轮发送
-
-说明：
-
-- 编辑区发送后会清空，按聊天输入框语义继续下一轮
-- 中间面板保留本任务下的运行记录和 Codex 回复
-- 如果没选项目就发送，会提示先选择项目
-
-### 方式 2：从禅道 Bug 一键进入工作台
+## 禅道扩展
 
 仓库内置了禅道 Chrome 扩展：`apps/zentao-extension`
 
-安装方法：
-
 1. 打开 `chrome://extensions`
-2. 开启“开发者模式”
+2. 开启开发者模式
 3. 点击“加载已解压的扩展程序”
 4. 选择 `apps/zentao-extension`
 
-使用方法：
+使用时保持 PromptX 已启动，然后在禅道 Bug 详情页点击右下角 `AI修复` 即可。
 
-1. 保持 `pnpm dev` 已启动
-2. 打开禅道 Bug 详情页
-3. 点击右下角 `AI修复`
-4. 扩展会提取页面内容，创建 PromptX 任务，并直接打开工作台
+## 注意事项
 
-## Codex 使用说明
-
-PromptX 当前完全围绕本机 Codex 设计。
-
-使用前请确认：
-
-- 终端里可以正常运行 `codex --version`
-- Codex 已开启最大权限
-- Codex 运行在满血模式
-- 本机存在可用的工作目录，供 PromptX 项目绑定
-
-当前项目机制：
-
-- PromptX 会为任务绑定一个本机 Codex 项目
-- 同一项目后续发送会继续复用 Codex 线程，而不是每次新开
-- 你可以在中间面板查看这个项目的执行过程和最终回复
-
-## 常用命令
-
-```bash
-pnpm dev
-pnpm dev:tailscale:auto
-pnpm start
-pnpm stop
-pnpm build
-```
-
-## 项目结构
-
-```text
-apps/
-  web/                Web 前端
-  server/             Fastify 后端
-  zentao-extension/   禅道 Chrome 扩展
-packages/
-  shared/             前后端共享常量与工具
-```
+- 当前只支持 Codex，不支持其他模型后端
+- 当前以本机单用户使用为主，不包含账号体系和团队权限
+- 默认仅监听本机地址；如需跨设备访问，建议通过 Tailscale
+- 如果 Codex 运行在受限权限下，文件读写和自动修改能力会明显受限
 
 ## 本地数据目录
 
-本地运行时会生成这些目录：
+运行数据默认保存在 `~/.promptx/`，包含：
 
-- `data/`
-- `uploads/`
-- `tmp/`
-
-这些都不应该提交到 Git。
-
-## 备注
-
-- 默认中文优先
-- 当前更偏向个人 / 小团队的本机协作场景
-- 更细的仓库约定见 `AGENTS.md`
+```text
+data/
+uploads/
+tmp/
+run/
+```

@@ -253,6 +253,11 @@ async function stopService() {
   console.log(`[promptx] 已强制停止服务（PID ${pid}）。`)
 }
 
+async function restartService() {
+  await stopService()
+  await startService()
+}
+
 function printStatus() {
   const current = getServiceState()
   if (!current.running) {
@@ -286,6 +291,11 @@ async function main() {
 
   if (command === 'status') {
     printStatus()
+    return
+  }
+
+  if (command === 'restart') {
+    await restartService()
     return
   }
 

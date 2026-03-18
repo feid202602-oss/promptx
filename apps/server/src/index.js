@@ -7,7 +7,7 @@ import multipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import { Jimp } from 'jimp'
 import { nanoid } from 'nanoid'
-import { EXPIRY_OPTIONS, VISIBILITY_OPTIONS } from '@promptx/shared'
+import { EXPIRY_OPTIONS, VISIBILITY_OPTIONS } from '../../../packages/shared/src/index.js'
 import {
   buildTaskExports,
   canEditTask,
