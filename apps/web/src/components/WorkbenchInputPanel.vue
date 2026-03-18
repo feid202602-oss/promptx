@@ -52,6 +52,10 @@ function focusEditor() {
   blockEditorRef.value?.focusEditor?.()
 }
 
+function flushPendingInput() {
+  return blockEditorRef.value?.flushPendingInput?.() || false
+}
+
 function insertBlocks(blocksToInsert) {
   blockEditorRef.value?.insertBlocks?.(blocksToInsert)
 }
@@ -68,11 +72,17 @@ function isImportedBlockActive() {
   return blockEditorRef.value?.isImportedBlockActive?.() || false
 }
 
+function isComposing() {
+  return blockEditorRef.value?.isComposing?.() || false
+}
+
 defineExpose({
   focusEditor,
+  flushPendingInput,
   insertBlocks,
   insertImportedBlocks,
   insertUploadedBlocks,
+  isComposing,
   isImportedBlockActive,
   openFilePicker,
 })

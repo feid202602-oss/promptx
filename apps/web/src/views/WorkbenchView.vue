@@ -252,7 +252,19 @@ function handleCurrentTaskSessionChange(nextSessionId) {
   handleTaskSessionChange(task.slug, nextSessionId)
 }
 
+async function flushCurrentEditorInput() {
+  if (typeof document !== 'undefined' && editorRef.value?.isComposing?.()) {
+    document.activeElement?.blur?.()
+  }
+
+  editorRef.value?.flushPendingInput?.()
+  await nextTick()
+  editorRef.value?.flushPendingInput?.()
+  await nextTick()
+}
+
 async function copyCodexPrompt() {
+  await flushCurrentEditorInput()
   await navigator.clipboard.writeText(buildPromptForTask(currentTaskSlug.value))
   flashToast('已复制给 Codex')
 }
@@ -287,6 +299,7 @@ async function sendToCodex() {
     return
   }
 
+  await flushCurrentEditorInput()
   updateLastPromptPreview(taskSlug, buildPromptForTask(taskSlug))
   const didSend = await getCurrentPanelRef(taskSlug)?.send?.()
   if (!didSend || taskSlug !== currentTaskSlug.value) {

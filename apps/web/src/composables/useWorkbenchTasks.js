@@ -308,6 +308,10 @@ export function useWorkbenchTasks(options = {}) {
     })
   }
 
+  function hasPendingDraftChanges() {
+    return createSnapshot() !== lastSavedSnapshot.value
+  }
+
   function getTaskSummary(slug) {
     return tasks.value.find((task) => task.slug === slug) || null
   }
@@ -650,7 +654,7 @@ export function useWorkbenchTasks(options = {}) {
       return
     }
 
-    if (hasUnsavedChanges.value || saving.value || uploading.value || loadingTask.value) {
+    if (hasPendingDraftChanges() || hasUnsavedChanges.value || saving.value || uploading.value || loadingTask.value) {
       return
     }
 
@@ -733,7 +737,7 @@ export function useWorkbenchTasks(options = {}) {
       if (
         skipIfDirtyOnApply
         && targetSlug === currentTaskSlug.value
-        && hasUnsavedChanges.value
+        && (hasPendingDraftChanges() || hasUnsavedChanges.value)
       ) {
         return false
       }

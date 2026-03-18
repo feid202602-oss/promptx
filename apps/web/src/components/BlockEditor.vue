@@ -34,6 +34,7 @@ const blocks = computed(() => props.modelValue)
 const mentionSessionId = computed(() => props.codexSessionId)
 const activeIndex = ref(0)
 const textareas = ref([])
+const composingBlockIndex = ref(-1)
 const surfaceRef = ref(null)
 const contentRef = ref(null)
 const fileInputRef = ref(null)
@@ -211,6 +212,48 @@ function updateText(index, content) {
     itemIndex === index ? { ...block, content } : block
   )
   setBlocks(nextBlocks)
+}
+
+function syncTextareaValueToBlock(index, value = '') {
+  const current = blocks.value[index]
+  if (!isTextLikeBlock(current)) {
+    return false
+  }
+
+  const nextContent = String(value ?? '')
+  if (nextContent === current.content) {
+    return false
+  }
+
+  const nextBlocks = [...blocks.value]
+  nextBlocks.splice(index, 1, {
+    ...current,
+    content: nextContent,
+  })
+  setBlocks(nextBlocks)
+  return true
+}
+
+function flushPendingInput() {
+  let changed = false
+
+  textareas.value.forEach((element, index) => {
+    if (!element) {
+      return
+    }
+
+    changed = syncTextareaValueToBlock(index, element.value) || changed
+  })
+
+  return changed
+}
+
+function isComposing(index = null) {
+  if (typeof index === 'number') {
+    return composingBlockIndex.value === index
+  }
+
+  return composingBlockIndex.value >= 0
 }
 
 function toggleImportedCollapse(index) {
@@ -580,6 +623,21 @@ function handleTextInput(index, event) {
   syncMentionState(index, event.target)
 }
 
+function handleTextCompositionStart(index) {
+  composingBlockIndex.value = index
+}
+
+function handleTextCompositionUpdate(index, event) {
+  syncTextareaValueToBlock(index, event.target.value)
+  handleTextInput(index, event)
+}
+
+function handleTextCompositionEnd(index, event) {
+  syncTextareaValueToBlock(index, event.target.value)
+  composingBlockIndex.value = -1
+  handleTextInput(index, event)
+}
+
 async function handleTextKeydown(index, event) {
   const current = blocks.value[index]
   const target = event.target
@@ -724,6 +782,10 @@ watch(
     if (!areBlocksEquivalent(normalized, value)) {
       emit('update:modelValue', normalized)
     }
+
+    if (composingBlockIndex.value >= normalized.length) {
+      composingBlockIndex.value = -1
+    }
   },
   { immediate: true, deep: true }
 )
@@ -739,11 +801,13 @@ watch(
 
 defineExpose({
   clearContent,
+  flushPendingInput,
   focusEditor,
   insertBlocks,
   insertImportedBlocks,
   insertTextAtSelection,
   insertUploadedBlocks,
+  isComposing,
   isImportedBlockActive: () => blocks.value[activeIndex.value]?.type === BLOCK_TYPES.IMPORTED_TEXT,
   openFilePicker,
 })
@@ -793,9 +857,12 @@ defineExpose({
             rows="1"
             :value="block.content"
             class="w-full resize-none border-0 bg-transparent p-0 pr-12 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
-              :placeholder="index === 0 ? '从这里开始写需求...' : '继续输入...'"
+            :placeholder="index === 0 ? '从这里开始写需求...' : '继续输入...'"
             @focus="handleTextFocus(index)"
             @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
+            @compositionstart="handleTextCompositionStart(index)"
+            @compositionupdate="handleTextCompositionUpdate(index, $event)"
+            @compositionend="handleTextCompositionEnd(index, $event)"
             @keydown="handleTextKeydown(index, $event)"
             @click="recordSelection(index, $event)"
             @keyup="recordSelection(index, $event)"
@@ -847,6 +914,9 @@ defineExpose({
             placeholder="导入内容为空"
             @focus="handleTextFocus(index)"
             @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
+            @compositionstart="handleTextCompositionStart(index)"
+            @compositionupdate="handleTextCompositionUpdate(index, $event)"
+            @compositionend="handleTextCompositionEnd(index, $event)"
             @keydown="handleTextKeydown(index, $event)"
             @click="recordSelection(index, $event)"
             @keyup="recordSelection(index, $event)"

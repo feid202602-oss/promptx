@@ -56,7 +56,8 @@ watch(
     }
 
     window.removeEventListener('keydown', handleKeydown)
-  }
+  },
+  { immediate: true }
 )
 
 onBeforeUnmount(() => {
