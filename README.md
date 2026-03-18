@@ -22,7 +22,7 @@ PromptX 是一个面向本机 AI 协作的轻量工作台。
 ## 安装
 
 ```bash
-npm install -g @mushayu/promptx
+npm install -g @muyichengshayu/promptx
 promptx doctor
 ```
 
