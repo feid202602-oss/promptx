@@ -12,6 +12,10 @@
     "dev:tailscale": "node scripts/dev-tailscale.mjs",
     "dev:tailscale:auto": "node scripts/dev-tailscale.mjs --auto",
     "build": "pnpm -r build",
+    "start": "pnpm build && node scripts/service.mjs start",
+    "stop": "node scripts/service.mjs stop",
+    "restart": "pnpm stop && pnpm build && node scripts/service.mjs start",
+    "status": "node scripts/service.mjs status",
     "lint": "pnpm -r lint",
     "smoke:realtime": "node scripts/smoke-realtime-sync.mjs"
   }

@@ -65,6 +65,9 @@ const host = process.env.HOST || '127.0.0.1'
 const { tmpDir, uploadsDir } = ensurePromptxStorageReady()
 const workspaceRootDir = path.resolve(serverRootDir, '..', '..')
 const workspaceParentDir = path.dirname(workspaceRootDir)
+const webDistDir = path.resolve(serverRootDir, '..', 'web', 'dist')
+const webIndexFile = path.join(webDistDir, 'index.html')
+const hasBuiltWebApp = fs.existsSync(webIndexFile)
 
 let lastExpiredPurgeAt = 0
 const sseHub = createSseHub()
@@ -304,6 +307,16 @@ await app.register(fastifyStatic, {
   root: uploadsDir,
   prefix: '/uploads/',
 })
+
+if (hasBuiltWebApp) {
+  await app.register(fastifyStatic, {
+    root: webDistDir,
+    prefix: '/',
+    decorateReply: false,
+    wildcard: false,
+    index: false,
+  })
+}
 
 app.get('/health', async () => ({ ok: true }))
 
@@ -866,6 +879,17 @@ app.get('/api/tasks/:slug/raw', async (request, reply) => {
   const exports = buildTaskExports(task)
   return reply.type('text/plain; charset=utf-8').send(exports.raw)
 })
+
+if (hasBuiltWebApp) {
+  app.get('/', async (request, reply) => reply.sendFile('index.html', webDistDir))
+  app.get('/*', async (request, reply) => {
+    const requestPath = String(request.raw.url || '').split('?')[0]
+    if (requestPath.startsWith('/api/') || requestPath.startsWith('/uploads/')) {
+      return reply.code(404).send({ message: '资源不存在。' })
+    }
+    return reply.sendFile('index.html', webDistDir)
+  })
+}
 
 app.setErrorHandler((error, request, reply) => {
   request.log.error(error)

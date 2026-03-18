@@ -69,6 +69,20 @@ TAILSCALE_IP=100.x.x.x pnpm dev:tailscale
 - `PROMPTX_SERVER_PORT`：后端端口，默认 `3000`
 - `PROMPTX_WEB_PORT`：前端端口，默认 `5173`
 
+如果你想像正式应用一样在后台运行，并且关闭终端后也不影响服务，可使用：
+
+```bash
+pnpm start
+pnpm status
+pnpm stop
+```
+
+说明：
+
+- `pnpm start` 会先构建前端，再在后台启动单个 Fastify 服务
+- 正式启动后统一通过 `http://127.0.0.1:3000` 访问，前端静态资源也由后端直接提供
+- 运行状态和日志默认保存在 `~/.promptx/run/`
+
 ## 使用方式
 
 ### 方式 1：直接在工作台里整理并发送任务
@@ -126,6 +140,8 @@ PromptX 当前完全围绕本机 Codex 设计。
 ```bash
 pnpm dev
 pnpm dev:tailscale:auto
+pnpm start
+pnpm stop
 pnpm build
 ```
 
