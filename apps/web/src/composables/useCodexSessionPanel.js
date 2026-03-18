@@ -932,7 +932,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
   if (payload.type === 'session') {
     mergeSession(payload.session)
     appendTurnEvent(turn, {
-      title: `已连接 PromptX 项目：${payload.session?.title || '未命名项目'}`,
+      title: `已连接项目：${payload.session?.title || '未命名项目'}`,
       detail: payload.session?.cwd ? `工作目录：${payload.session.cwd}` : '',
     }, nextLogId)
     return
@@ -948,6 +948,10 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
   }
 
   if (payload.type === 'status') {
+    if (payload.stage === 'starting' || payload.stage === 'resuming') {
+      return
+    }
+
     appendTurnEvent(turn, {
       title: payload.message || '状态已更新',
       detail: '',
