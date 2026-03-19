@@ -1,6 +1,6 @@
 {
   "name": "@muyichengshayu/promptx",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "PromptX 本机 AI 协作工作台",
   "type": "module",
   "bin": {
