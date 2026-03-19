@@ -354,6 +354,7 @@ async function startRelayServer() {
     let authenticated = false
     const authTimer = setTimeout(() => {
       if (!authenticated) {
+        app.log.warn('[relay] 设备认证超时，连接将被关闭')
         socket.close(1008, 'missing_auth')
       }
     }, DEVICE_AUTH_TIMEOUT_MS)
@@ -372,6 +373,7 @@ async function startRelayServer() {
 
       if (!authenticated) {
         if (message.type !== 'hello') {
+          app.log.warn('[relay] 收到未认证设备的非法首包，连接将被关闭')
           socket.close(1008, 'missing_hello')
           return
         }
@@ -379,10 +381,17 @@ async function startRelayServer() {
         const providedToken = String(message.deviceToken || '').trim()
         const providedDeviceId = String(message.deviceId || '').trim()
         if (!constantTimeEqual(providedToken, config.deviceToken)) {
+          app.log.warn({
+            deviceId: providedDeviceId || 'unknown-device',
+          }, '[relay] 设备令牌不匹配，连接将被拒绝')
           socket.close(1008, 'invalid_token')
           return
         }
         if (config.expectedDeviceId && providedDeviceId !== config.expectedDeviceId) {
+          app.log.warn({
+            expectedDeviceId: config.expectedDeviceId,
+            providedDeviceId: providedDeviceId || 'unknown-device',
+          }, '[relay] 设备 ID 不匹配，连接将被拒绝')
           socket.close(1008, 'invalid_device')
           return
         }
@@ -391,6 +400,9 @@ async function startRelayServer() {
         clearTimeout(authTimer)
 
         if (deviceState.socket && deviceState.socket !== socket) {
+          app.log.warn({
+            deviceId: providedDeviceId || 'unknown-device',
+          }, '[relay] 已有旧设备连接，将被新连接替换')
           deviceState.socket.close(1012, 'replaced_by_new_connection')
         }
 
@@ -434,7 +446,8 @@ async function startRelayServer() {
       }
     })
 
-    socket.on('close', () => {
+    socket.on('close', (code, reason) => {
+      const closeReason = reason?.toString('utf8') || ''
       clearTimeout(authTimer)
       if (deviceState.socket === socket) {
         const disconnectedRequestIds = [...requestMap.keys()]
@@ -447,7 +460,16 @@ async function startRelayServer() {
         })
         deviceState.socket = null
         deviceState.connectedAt = ''
-        app.log.warn(`[relay] 设备已断开：${deviceState.deviceId || 'unknown-device'}`)
+        app.log.warn({
+          deviceId: deviceState.deviceId || 'unknown-device',
+          code: Number(code || 0),
+          reason: closeReason || 'none',
+        }, '[relay] 设备已断开')
+      } else if (!authenticated) {
+        app.log.warn({
+          code: Number(code || 0),
+          reason: closeReason || 'none',
+        }, '[relay] 未认证设备连接已关闭')
       }
     })
   })

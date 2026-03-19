@@ -21,8 +21,28 @@ function createDisabledStatus() {
     deviceId: '',
     lastConnectedAt: '',
     lastDisconnectedAt: '',
+    lastCloseCode: 0,
+    lastCloseReason: '',
     lastError: '',
   }
+}
+
+function normalizeCloseReason(reason = '') {
+  const normalized = String(reason || '').trim()
+  if (!normalized) {
+    return ''
+  }
+
+  const reasonMap = {
+    invalid_token: '设备令牌不匹配',
+    invalid_device: '设备 ID 不匹配',
+    missing_hello: '缺少设备认证报文',
+    missing_auth: '设备认证超时',
+    replaced_by_new_connection: '已被新的设备连接替换',
+    config_updated: '配置已更新，正在重连',
+  }
+
+  return reasonMap[normalized] || normalized
 }
 
 function readRelayClientConfig({
@@ -79,6 +99,7 @@ function createRelayClient({
   let stopped = false
   let reconnectTimer = null
   let requestMap = new Map()
+  let authenticated = false
 
   function updateStatus(patch = {}) {
     Object.assign(status, patch)
@@ -263,36 +284,65 @@ function createRelayClient({
     }
 
     socket = new WebSocket(config.websocketUrl)
+    authenticated = false
 
     socket.on('open', () => {
-      updateStatus({
-        connected: true,
-        lastConnectedAt: new Date().toISOString(),
-        lastError: '',
-      })
-
       sendFrame({
         type: 'hello',
         deviceId: config.deviceId,
         deviceToken: config.deviceToken,
         version: appVersion,
       })
-      logInfo(`[relay] 已连接 ${config.relayUrl}`)
+      logInfo(`[relay] WebSocket 已建立，等待设备认证 ${config.relayUrl}`)
     })
 
     socket.on('message', (payload, isBinary) => {
       if (isBinary) {
         return
       }
-      handleIncomingFrame(payload.toString('utf8'))
+      let message = null
+      try {
+        message = JSON.parse(payload.toString('utf8'))
+      } catch {
+        return
+      }
+
+      if (message?.type === 'hello.ack') {
+        authenticated = true
+        updateStatus({
+          connected: true,
+          lastConnectedAt: new Date().toISOString(),
+          lastCloseCode: 0,
+          lastCloseReason: '',
+          lastError: '',
+        })
+        logInfo(`[relay] 已连接 ${config.relayUrl}`)
+        return
+      }
+      handleIncomingFrame(JSON.stringify(message))
     })
 
-    socket.on('close', () => {
+    socket.on('close', (code, reason) => {
+      const wasAuthenticated = authenticated
+      const closeReason = normalizeCloseReason(reason?.toString('utf8'))
+      const nextError = closeReason && closeReason !== '配置已更新，正在重连'
+        ? `${wasAuthenticated ? 'Relay 已断开' : 'Relay 连接被拒绝'}：${closeReason}`
+        : (!wasAuthenticated && code && code !== 1000 ? `Relay 连接已关闭（code=${code}）` : '')
+
       updateStatus({
         connected: false,
         lastDisconnectedAt: new Date().toISOString(),
+        lastCloseCode: Number(code || 0),
+        lastCloseReason: closeReason,
+        ...(nextError ? { lastError: nextError } : {}),
       })
       socket = null
+      authenticated = false
+      logWarn('[relay] 连接已关闭', {
+        code: Number(code || 0),
+        reason: closeReason || 'none',
+        authenticated: wasAuthenticated,
+      })
       scheduleReconnect()
     })
 
@@ -335,6 +385,7 @@ function createRelayClient({
       requestMap = new Map()
       socket?.close()
       socket = null
+      authenticated = false
       updateStatus({
         connected: false,
       })
