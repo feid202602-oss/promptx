@@ -99,6 +99,34 @@ function createCookieValue(name, value, secure = false) {
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure ? '; Secure' : ''}`
 }
 
+function normalizeRequestBodyToBuffer(body) {
+  if (Buffer.isBuffer(body)) {
+    return body
+  }
+
+  if (typeof body === 'string') {
+    return Buffer.from(body)
+  }
+
+  if (body instanceof ArrayBuffer) {
+    return Buffer.from(body)
+  }
+
+  if (ArrayBuffer.isView(body)) {
+    return Buffer.from(body.buffer, body.byteOffset, body.byteLength)
+  }
+
+  if (body === null || typeof body === 'undefined') {
+    return Buffer.alloc(0)
+  }
+
+  if (typeof body === 'object') {
+    return Buffer.from(JSON.stringify(body))
+  }
+
+  return Buffer.from(String(body))
+}
+
 async function startRelayServer() {
   const config = readRelayServerConfig()
   const webDistDir = getWebDistRoot()
@@ -221,7 +249,7 @@ async function startRelayServer() {
 
   function sendRequestToDevice(socket, requestId, request) {
     const requestPath = String(request.raw.url || '/')
-    const bodyBuffer = Buffer.isBuffer(request.body) ? request.body : Buffer.from(request.body || '')
+    const bodyBuffer = normalizeRequestBodyToBuffer(request.body)
 
     socket.send(JSON.stringify({
       type: 'request.start',
@@ -494,6 +522,7 @@ async function startRelayServer() {
 }
 
 export {
+  normalizeRequestBodyToBuffer,
   readRelayServerConfig,
   startRelayServer,
 }
