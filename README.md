@@ -36,11 +36,17 @@ promptx doctor
 promptx start
 promptx status
 promptx stop
+promptx relay start
 ```
 
 ```bash
 promptx doctor
 ```
+
+其中：
+
+- `promptx start`：启动本机 PromptX 工作台
+- `promptx relay start`：启动公网中转服务，适合部署到你自己的云服务器
 
 ## 使用方式
 
@@ -49,6 +55,21 @@ promptx doctor
 3. 在中间选择一个 PromptX 项目
 4. 点击发送，把当前内容交给 Codex
 5. 在中间继续查看执行过程，并按需多轮发送
+
+## 远程访问 Relay（预览）
+
+如果你希望在手机上远程访问自己电脑上的 PromptX，或想在云端部署多租户 Relay，请直接查看：
+
+- `docs/relay-quickstart.md`
+
+文档里已经整理好这些内容：
+
+- 本地 PromptX 接入 Relay
+- 云端 Relay 启动与后台管理
+- 多租户子域名接入
+- `promptx relay tenant add/list/remove`
+- `promptx relay start/stop/restart/status`
+- Nginx、DNS、健康检查与常见排查
 
 ## 禅道扩展
 

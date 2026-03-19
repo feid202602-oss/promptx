@@ -1,6 +1,6 @@
 {
   "name": "@muyichengshayu/promptx",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "PromptX 本机 AI 协作工作台",
   "type": "module",
   "bin": {
@@ -13,8 +13,13 @@
     "apps/web/dist",
     "packages/shared/src",
     "scripts/doctor.mjs",
+    "scripts/relay.mjs",
+    "scripts/relay-service.mjs",
+    "scripts/relay-tenant.mjs",
     "scripts/service.mjs",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "docs"
   ],
   "engines": {
     "node": ">=20.19.0 <21 || >=22.13.0 <23 || >=24 <25"
@@ -35,6 +40,7 @@
     "restart": "pnpm stop && pnpm build && node scripts/service.mjs start",
     "status": "node scripts/service.mjs status",
     "doctor": "node scripts/doctor.mjs",
+    "relay:start": "node scripts/relay.mjs",
     "release:check": "node scripts/release.mjs check",
     "release": "node scripts/release.mjs publish",
     "prepack": "pnpm build",
@@ -53,6 +59,7 @@
     "jimp": "1.6.0",
     "nanoid": "5.1.6",
     "pdfjs-dist": "5.5.207",
-    "sql.js": "1.13.0"
+    "sql.js": "1.13.0",
+    "ws": "8.18.3"
   }
 }

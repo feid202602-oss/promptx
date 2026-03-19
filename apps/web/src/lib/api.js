@@ -10,6 +10,10 @@ export {
   updateTask,
 } from './taskApi.js'
 export {
+  getRelayConfig,
+  updateRelayConfig,
+} from './relayApi.js'
+export {
   importPdf,
   uploadImage,
 } from './assetApi.js'

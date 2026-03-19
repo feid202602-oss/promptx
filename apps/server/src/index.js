@@ -57,6 +57,8 @@ import {
   searchWorkspaceEntries,
 } from './workspaceFiles.js'
 import { ensurePromptxStorageReady, serverRootDir } from './appPaths.js'
+import { createRelayClient } from './relayClient.js'
+import { getRelayConfigForClient, isRelayConfigManagedByEnv, writeStoredRelayConfig } from './relayConfig.js'
 import { createSseHub } from './sseHub.js'
 
 const app = Fastify({ logger: true })
@@ -80,6 +82,13 @@ function readPromptxVersion() {
 }
 
 const promptxVersion = readPromptxVersion()
+const relayConfig = getRelayConfigForClient()
+const relayClient = createRelayClient({
+  logger: app.log,
+  appVersion: promptxVersion,
+  localBaseUrl: process.env.PROMPTX_RELAY_LOCAL_BASE_URL || `http://127.0.0.1:${port}`,
+  ...relayConfig,
+})
 
 let lastExpiredPurgeAt = 0
 const sseHub = createSseHub()
@@ -337,6 +346,32 @@ app.get('/api/meta', async () => ({
   expiryOptions: EXPIRY_OPTIONS,
   visibilityOptions: VISIBILITY_OPTIONS,
 }))
+
+app.get('/api/relay/status', async () => ({
+  relay: relayClient.getStatus(),
+}))
+
+app.get('/api/relay/config', async () => ({
+  config: {
+    ...getRelayConfigForClient(),
+  },
+  managedByEnv: isRelayConfigManagedByEnv(),
+  relay: relayClient.getStatus(),
+}))
+
+app.put('/api/relay/config', async (request) => {
+  const savedConfig = writeStoredRelayConfig(request.body || {})
+  relayClient.updateConfig({
+    ...savedConfig,
+    localBaseUrl: process.env.PROMPTX_RELAY_LOCAL_BASE_URL || `http://127.0.0.1:${port}`,
+  })
+
+  return {
+    config: getRelayConfigForClient(),
+    managedByEnv: isRelayConfigManagedByEnv(),
+    relay: relayClient.getStatus(),
+  }
+})
 
 app.get('/api/events/stream', async (request, reply) => {
   reply.hijack()
@@ -920,5 +955,6 @@ app.listen({ port, host }).then(() => {
   buildServerAccessUrls(host, port).forEach((message) => {
     app.log.info(message)
   })
+  relayClient.start()
 })
 
