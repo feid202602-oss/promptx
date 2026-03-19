@@ -34,6 +34,7 @@ function normalizeCloseReason(reason = '') {
   }
 
   const reasonMap = {
+    invalid_tenant: '当前 Relay 域名未匹配到租户',
     invalid_token: '设备令牌不匹配',
     invalid_device: '设备 ID 不匹配',
     missing_hello: '缺少设备认证报文',

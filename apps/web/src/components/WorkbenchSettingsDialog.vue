@@ -296,7 +296,7 @@ onBeforeUnmount(() => {
                     <span>远程访问 Relay</span>
                   </div>
                   <p class="theme-muted-text mt-1 text-xs leading-5">
-                    配好后，本机 PromptX 会主动连接你的公网 Relay，手机可通过该地址访问。
+                    配好后，本机 PromptX 会主动连接你的公网 Relay。多同事场景下，建议每个人使用自己的子域名，例如 `https://user1.promptx.example.com`。
                   </p>
                 </div>
                 <span
@@ -328,7 +328,7 @@ onBeforeUnmount(() => {
                     <input
                       v-model="relayForm.relayUrl"
                       type="text"
-                      placeholder="https://relay.example.com"
+                      placeholder="https://user1.promptx.example.com"
                       class="w-full rounded-sm border border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] px-3 py-2 text-sm text-[var(--theme-textPrimary)] outline-none transition focus:border-[var(--theme-borderStrong)]"
                       :disabled="relayManagedByEnv"
                     >
@@ -374,13 +374,19 @@ onBeforeUnmount(() => {
                       最近错误：{{ relayStatus.lastError }}
                     </p>
                     <p
+                      v-else-if="relayStatus?.lastCloseReason"
+                      class="theme-muted-text text-xs leading-5"
+                    >
+                      最近断开：{{ relayStatus.lastCloseReason }}<span v-if="relayStatus.lastCloseCode">（code {{ relayStatus.lastCloseCode }}）</span>
+                    </p>
+                    <p
                       v-else-if="relayStatus?.lastConnectedAt"
                       class="theme-muted-text text-xs leading-5"
                     >
                       最近连接：{{ new Date(relayStatus.lastConnectedAt).toLocaleString('zh-CN') }}
                     </p>
                     <p v-else class="theme-muted-text text-xs leading-5">
-                      建议公网 Relay 使用 HTTPS，并确保云端与本机使用同一个设备 Token。
+                      建议公网 Relay 使用 HTTPS，并确保云端与本机使用同一个设备 Token；多租户时每个人填写自己的子域名地址。
                     </p>
                   </div>
 

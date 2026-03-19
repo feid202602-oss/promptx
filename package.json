@@ -14,6 +14,7 @@
     "packages/shared/src",
     "scripts/doctor.mjs",
     "scripts/relay.mjs",
+    "scripts/relay-tenant.mjs",
     "scripts/service.mjs",
     "README.md"
   ],

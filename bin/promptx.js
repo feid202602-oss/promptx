@@ -11,6 +11,7 @@ const packageJsonPath = path.join(rootDir, 'package.json')
 const serviceScriptPath = path.join(rootDir, 'scripts', 'service.mjs')
 const doctorScriptPath = path.join(rootDir, 'scripts', 'doctor.mjs')
 const relayScriptPath = path.join(rootDir, 'scripts', 'relay.mjs')
+const relayTenantScriptPath = path.join(rootDir, 'scripts', 'relay-tenant.mjs')
 
 function readCliVersion() {
   try {
@@ -41,6 +42,8 @@ PromptX CLI
   promptx doctor
   promptx version
   promptx relay start
+  promptx relay tenant add <key>
+  promptx relay tenant add <key> --domain promptx.mushayu.com
 
 说明：
   - start: 后台启动 PromptX，本机默认地址 http://127.0.0.1:3000
@@ -50,6 +53,8 @@ PromptX CLI
   - doctor: 检查 Node、Codex、数据目录、端口和打包产物
   - version: 输出当前版本
   - relay start: 启动 PromptX Relay 中转服务
+  - relay tenant add: 追加一个 Relay 子域名租户并自动生成 host/token
+    默认读取 PROMPTX_RELAY_BASE_DOMAIN 和 PROMPTX_RELAY_TENANTS_FILE
 `.trim())
 }
 
@@ -95,8 +100,10 @@ if (
   runNodeScript(doctorScriptPath)
 } else if (command === 'relay' && subCommand === 'start') {
   runNodeScript(relayScriptPath)
+} else if (command === 'relay' && subCommand === 'tenant') {
+  runNodeScript(relayTenantScriptPath, process.argv.slice(4))
 } else {
   console.error(`[promptx] 不支持的命令：${command}`)
-  console.error('[promptx] 可用命令：start / stop / restart / status / doctor / version / relay start')
+  console.error('[promptx] 可用命令：start / stop / restart / status / doctor / version / relay start / relay tenant add')
   process.exitCode = 1
 }

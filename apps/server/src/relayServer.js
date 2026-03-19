@@ -21,16 +21,127 @@ const DEFAULT_RELAY_HOST = '0.0.0.0'
 const DEFAULT_COOKIE_NAME = 'promptx_relay_access'
 const DEVICE_AUTH_TIMEOUT_MS = 5_000
 
+function normalizeRelayHost(value = '') {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    return ''
+  }
+
+  const firstValue = raw.split(',')[0]?.trim() || ''
+  if (!firstValue) {
+    return ''
+  }
+
+  try {
+    const withProtocol = /^[a-z]+:\/\//i.test(firstValue) ? firstValue : `http://${firstValue}`
+    return String(new URL(withProtocol).hostname || '').trim().toLowerCase().replace(/\.$/, '')
+  } catch {
+    return firstValue.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '')
+  }
+}
+
+function normalizeRelayTenantConfig(input = {}, index = 0) {
+  const hosts = [
+    ...(Array.isArray(input?.hosts) ? input.hosts : []),
+    input?.host,
+    input?.publicUrl,
+  ]
+    .map((item) => normalizeRelayHost(item))
+    .filter(Boolean)
+    .filter((item, itemIndex, items) => items.indexOf(item) === itemIndex)
+
+  const key = String(
+    input?.key
+    || input?.slug
+    || (hosts[0] ? hosts[0].split('.')[0] : '')
+    || `tenant-${index + 1}`
+  ).trim()
+
+  return {
+    key,
+    hosts,
+    expectedDeviceId: String(input?.deviceId || input?.expectedDeviceId || '').trim(),
+    deviceToken: String(input?.deviceToken || '').trim(),
+    accessToken: String(input?.accessToken || '').trim(),
+  }
+}
+
+function readRelayTenantsFromFile(filePath) {
+  const resolvedPath = path.resolve(String(filePath || '').trim())
+  const payload = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'))
+  const tenantItems = Array.isArray(payload) ? payload : payload?.tenants
+  if (!Array.isArray(tenantItems) || !tenantItems.length) {
+    throw new Error('PROMPTX_RELAY_TENANTS_FILE 中未找到 tenants 配置。')
+  }
+
+  return {
+    source: resolvedPath,
+    tenants: tenantItems.map((item, index) => normalizeRelayTenantConfig(item, index)),
+  }
+}
+
+function readRelayTenantsFromEnv() {
+  const tenant = normalizeRelayTenantConfig({
+    key: process.env.PROMPTX_RELAY_TENANT_KEY || 'default',
+    host: process.env.PROMPTX_RELAY_PUBLIC_URL,
+    expectedDeviceId: process.env.PROMPTX_RELAY_DEVICE_ID,
+    deviceToken: process.env.PROMPTX_RELAY_DEVICE_TOKEN,
+    accessToken: process.env.PROMPTX_RELAY_ACCESS_TOKEN,
+  })
+
+  return {
+    source: 'env',
+    tenants: [tenant],
+  }
+}
+
 function readRelayServerConfig() {
+  const tenantsFile = String(process.env.PROMPTX_RELAY_TENANTS_FILE || '').trim()
+  const tenantConfig = tenantsFile ? readRelayTenantsFromFile(tenantsFile) : readRelayTenantsFromEnv()
+  const keySet = new Set()
+  const hostSet = new Set()
+
+  tenantConfig.tenants.forEach((tenant) => {
+    if (!tenant.key) {
+      throw new Error('Relay tenant 缺少 key。')
+    }
+    if (!tenant.deviceToken) {
+      throw new Error(`Relay tenant ${tenant.key} 缺少 deviceToken。`)
+    }
+    if (keySet.has(tenant.key)) {
+      throw new Error(`Relay tenant key 重复：${tenant.key}`)
+    }
+    keySet.add(tenant.key)
+
+    tenant.hosts.forEach((host) => {
+      if (hostSet.has(host)) {
+        throw new Error(`Relay tenant host 重复：${host}`)
+      }
+      hostSet.add(host)
+    })
+  })
+
   return {
     host: String(process.env.PROMPTX_RELAY_HOST || process.env.HOST || DEFAULT_RELAY_HOST).trim() || DEFAULT_RELAY_HOST,
     port: Math.max(1, Number(process.env.PROMPTX_RELAY_PORT || process.env.PORT) || DEFAULT_RELAY_PORT),
-    publicUrl: String(process.env.PROMPTX_RELAY_PUBLIC_URL || '').trim(),
-    expectedDeviceId: String(process.env.PROMPTX_RELAY_DEVICE_ID || '').trim(),
-    deviceToken: String(process.env.PROMPTX_RELAY_DEVICE_TOKEN || '').trim(),
-    accessToken: String(process.env.PROMPTX_RELAY_ACCESS_TOKEN || '').trim(),
     accessCookieName: String(process.env.PROMPTX_RELAY_ACCESS_COOKIE || DEFAULT_COOKIE_NAME).trim() || DEFAULT_COOKIE_NAME,
+    tenants: tenantConfig.tenants,
+    tenantSource: tenantConfig.source,
   }
+}
+
+function resolveRelayTenantByHost(tenants = [], rawHost = '') {
+  const normalizedHost = normalizeRelayHost(rawHost)
+  if (!normalizedHost) {
+    return tenants.length === 1 && tenants[0].hosts.length === 0 ? tenants[0] : null
+  }
+
+  const exactMatch = tenants.find((tenant) => tenant.hosts.includes(normalizedHost))
+  if (exactMatch) {
+    return exactMatch
+  }
+
+  return tenants.length === 1 && tenants[0].hosts.length === 0 ? tenants[0] : null
 }
 
 function getWebDistRoot() {
@@ -40,9 +151,11 @@ function getWebDistRoot() {
 function buildLoginPage({
   errorMessage = '',
   redirectPath = '/',
+  tenantLabel = '',
 } = {}) {
   const escapedError = String(errorMessage || '').replace(/[<>&"]/g, '')
   const escapedRedirect = String(redirectPath || '/').replace(/"/g, '&quot;')
+  const escapedTenantLabel = String(tenantLabel || '').replace(/[<>&"]/g, '')
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -59,10 +172,12 @@ function buildLoginPage({
     input { box-sizing: border-box; width: 100%; border: 1px solid #a8a29e; padding: 10px 12px; background: white; }
     button { margin-top: 14px; width: 100%; border: 1px solid #166534; background: #16a34a; color: white; padding: 10px 12px; cursor: pointer; }
     .error { margin-bottom: 12px; color: #b91c1c; font-size: 13px; }
+    .tenant { display: inline-block; margin-bottom: 10px; padding: 2px 8px; border: 1px dashed #86efac; color: #166534; font-size: 12px; }
   </style>
 </head>
 <body>
   <form class="card" action="/relay/login" method="get">
+    ${escapedTenantLabel ? `<div class="tenant">${escapedTenantLabel}</div>` : ''}
     <h1>PromptX Relay</h1>
     <p>请输入远程访问令牌，进入你自己的 PromptX 工作台。</p>
     ${escapedError ? `<div class="error">${escapedError}</div>` : ''}
@@ -71,6 +186,32 @@ function buildLoginPage({
     <input id="token" name="token" type="password" autocomplete="current-password" required />
     <button type="submit">进入 PromptX</button>
   </form>
+</body>
+</html>`
+}
+
+function buildUnknownTenantPage(host = '') {
+  const escapedHost = String(host || '').replace(/[<>&"]/g, '')
+
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PromptX Relay</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f5f5f4; color: #1c1917; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .card { width: min(92vw, 480px); border: 1px solid #d6d3d1; background: white; box-shadow: 8px 8px 0 rgba(28,25,23,.06); padding: 24px; }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    p { margin: 0; line-height: 1.7; color: #57534e; }
+    code { padding: 2px 6px; background: #f5f5f4; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>PromptX Relay 未匹配到租户</h1>
+    <p>当前访问域名 <code>${escapedHost || 'unknown-host'}</code> 没有配置到 Relay。请检查 DNS、Nginx 与租户配置文件。</p>
+  </div>
 </body>
 </html>`
 }
@@ -127,15 +268,36 @@ function normalizeRequestBodyToBuffer(body) {
   return Buffer.from(String(body))
 }
 
+function getRequestHost(request) {
+  return normalizeRelayHost(request?.headers?.['x-forwarded-host'] || request?.headers?.host || '')
+}
+
+function isHttpsRequest(request) {
+  const forwardedProto = String(request?.headers?.['x-forwarded-proto'] || '').split(',')[0]?.trim().toLowerCase()
+  if (forwardedProto) {
+    return forwardedProto === 'https'
+  }
+
+  return Boolean(request?.socket?.encrypted)
+}
+
+function createTenantState(tenant) {
+  return {
+    tenantKey: tenant.key,
+    tenantHosts: tenant.hosts,
+    socket: null,
+    deviceId: '',
+    connectedAt: '',
+    version: '',
+  }
+}
+
 async function startRelayServer() {
   const config = readRelayServerConfig()
   const webDistDir = getWebDistRoot()
   const webIndexPath = path.join(webDistDir, 'index.html')
   if (!fs.existsSync(webIndexPath)) {
     throw new Error('没有找到前端构建产物，请先运行 `pnpm build`。')
-  }
-  if (!config.deviceToken) {
-    throw new Error('缺少 PROMPTX_RELAY_DEVICE_TOKEN，无法启动 relay。')
   }
 
   const app = Fastify({ logger: true, bodyLimit: 35 * 1024 * 1024 })
@@ -151,30 +313,53 @@ async function startRelayServer() {
   })
 
   const wsServer = new WebSocketServer({ noServer: true })
-  const deviceState = {
-    socket: null,
-    deviceId: '',
-    connectedAt: '',
-    version: '',
-  }
   const requestMap = new Map()
+  const tenantStateMap = new Map(config.tenants.map((tenant) => [tenant.key, createTenantState(tenant)]))
 
-  function isAuthorizedRequest(request) {
-    if (!config.accessToken) {
+  function getTenantState(tenantKey) {
+    return tenantStateMap.get(String(tenantKey || '').trim()) || null
+  }
+
+  function getTenantForRequest(request) {
+    return resolveRelayTenantByHost(config.tenants, getRequestHost(request))
+  }
+
+  function replyUnknownTenant(request, reply) {
+    const host = getRequestHost(request)
+    if (isHtmlRequest(request)) {
+      return reply.code(404).type('text/html; charset=utf-8').send(buildUnknownTenantPage(host))
+    }
+    return reply.code(404).send({
+      message: '当前域名未配置到 PromptX Relay。',
+      host,
+    })
+  }
+
+  function requireTenantRequest(request, reply) {
+    const tenant = getTenantForRequest(request)
+    if (tenant) {
+      return tenant
+    }
+    replyUnknownTenant(request, reply)
+    return null
+  }
+
+  function isAuthorizedRequest(request, tenant) {
+    if (!tenant?.accessToken) {
       return true
     }
 
     const bearerToken = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()
-    if (bearerToken && constantTimeEqual(bearerToken, config.accessToken)) {
+    if (bearerToken && constantTimeEqual(bearerToken, tenant.accessToken)) {
       return true
     }
 
     const cookies = parseCookieHeader(request.headers.cookie)
-    return constantTimeEqual(cookies[config.accessCookieName] || '', config.accessToken)
+    return constantTimeEqual(cookies[config.accessCookieName] || '', tenant.accessToken)
   }
 
-  function ensureAuthorized(request, reply) {
-    if (isAuthorizedRequest(request)) {
+  function ensureAuthorized(request, reply, tenant) {
+    if (isAuthorizedRequest(request, tenant)) {
       return true
     }
 
@@ -184,17 +369,19 @@ async function startRelayServer() {
         .type('text/html; charset=utf-8')
         .send(buildLoginPage({
           redirectPath: getRequestPath(request),
+          tenantLabel: tenant?.key || getRequestHost(request),
         }))
     }
 
     return reply.code(401).send({ message: '未通过 relay 访问验证。' })
   }
 
-  function getActiveDeviceSocket() {
-    if (!deviceState.socket || deviceState.socket.readyState !== 1) {
+  function getActiveDeviceSocket(tenantKey) {
+    const tenantState = getTenantState(tenantKey)
+    if (!tenantState?.socket || tenantState.socket.readyState !== 1) {
       return null
     }
-    return deviceState.socket
+    return tenantState.socket
   }
 
   function clearPendingRequest(requestId, reason = 'request_closed') {
@@ -204,7 +391,7 @@ async function startRelayServer() {
     }
     requestMap.delete(requestId)
     try {
-      getActiveDeviceSocket()?.send(JSON.stringify({
+      getActiveDeviceSocket(record.tenantKey)?.send(JSON.stringify({
         type: 'request.cancel',
         requestId,
         reason,
@@ -274,12 +461,18 @@ async function startRelayServer() {
   }
 
   function handleProxyRequest(request, reply) {
-    if (ensureAuthorized(request, reply) !== true) {
+    const tenant = requireTenantRequest(request, reply)
+    if (!tenant) {
       return
     }
 
-    const deviceSocket = getActiveDeviceSocket()
+    if (ensureAuthorized(request, reply, tenant) !== true) {
+      return
+    }
+
+    const deviceSocket = getActiveDeviceSocket(tenant.key)
     if (!deviceSocket) {
+      app.log.warn({ tenantKey: tenant.key, host: getRequestHost(request) }, '[relay] 当前租户没有在线设备')
       return reply.code(503).send({ message: 'PromptX 本地设备暂未连接到 relay。' })
     }
 
@@ -287,6 +480,7 @@ async function startRelayServer() {
     reply.hijack()
     requestMap.set(requestId, {
       requestId,
+      tenantKey: tenant.key,
       request,
       reply,
       started: false,
@@ -307,35 +501,69 @@ async function startRelayServer() {
     }
   }
 
-  app.get('/health', async () => ({
-    ok: true,
-    deviceOnline: Boolean(getActiveDeviceSocket()),
-  }))
-
-  app.get('/relay/device-status', async (request, reply) => {
-    if (ensureAuthorized(request, reply) !== true) {
-      return
+  app.get('/health', async (request) => {
+    const tenant = getTenantForRequest(request)
+    if (tenant) {
+      const tenantState = getTenantState(tenant.key)
+      return {
+        ok: true,
+        tenant: tenant.key,
+        host: getRequestHost(request),
+        deviceOnline: Boolean(getActiveDeviceSocket(tenant.key)),
+        deviceId: tenantState?.deviceId || '',
+      }
     }
 
     return {
       ok: true,
-      deviceOnline: Boolean(getActiveDeviceSocket()),
-      deviceId: deviceState.deviceId,
-      connectedAt: deviceState.connectedAt,
-      version: deviceState.version,
+      tenants: config.tenants.map((item) => {
+        const tenantState = getTenantState(item.key)
+        return {
+          key: item.key,
+          hosts: item.hosts,
+          deviceOnline: Boolean(getActiveDeviceSocket(item.key)),
+          deviceId: tenantState?.deviceId || '',
+        }
+      }),
+    }
+  })
+
+  app.get('/relay/device-status', async (request, reply) => {
+    const tenant = requireTenantRequest(request, reply)
+    if (!tenant) {
+      return
+    }
+
+    if (ensureAuthorized(request, reply, tenant) !== true) {
+      return
+    }
+
+    const tenantState = getTenantState(tenant.key)
+    return {
+      ok: true,
+      tenant: tenant.key,
+      host: getRequestHost(request),
+      deviceOnline: Boolean(getActiveDeviceSocket(tenant.key)),
+      deviceId: tenantState?.deviceId || '',
+      connectedAt: tenantState?.connectedAt || '',
+      version: tenantState?.version || '',
     }
   })
 
   app.get('/relay/login', async (request, reply) => {
-    if (!config.accessToken) {
+    const tenant = requireTenantRequest(request, reply)
+    if (!tenant) {
+      return
+    }
+
+    if (!tenant.accessToken) {
       return reply.redirect('/')
     }
 
     const token = String(request.query?.token || '').trim()
     const redirectPath = normalizeRedirectPath(request.query?.redirect)
-    if (token && constantTimeEqual(token, config.accessToken)) {
-      const shouldUseSecureCookie = config.publicUrl.startsWith('https://')
-      reply.header('Set-Cookie', createCookieValue(config.accessCookieName, config.accessToken, shouldUseSecureCookie))
+    if (token && constantTimeEqual(token, tenant.accessToken)) {
+      reply.header('Set-Cookie', createCookieValue(config.accessCookieName, tenant.accessToken, isHttpsRequest(request)))
       return reply.redirect(redirectPath)
     }
 
@@ -345,6 +573,7 @@ async function startRelayServer() {
       .send(buildLoginPage({
         errorMessage: token ? '访问令牌不正确。' : '',
         redirectPath,
+        tenantLabel: tenant.key,
       }))
   })
 
@@ -361,7 +590,11 @@ async function startRelayServer() {
   })
 
   app.get('/', async (request, reply) => {
-    if (ensureAuthorized(request, reply) !== true) {
+    const tenant = requireTenantRequest(request, reply)
+    if (!tenant) {
+      return
+    }
+    if (ensureAuthorized(request, reply, tenant) !== true) {
       return
     }
     return reply.type('text/html; charset=utf-8').send(fs.createReadStream(webIndexPath))
@@ -372,17 +605,29 @@ async function startRelayServer() {
       return reply.code(404).send({ message: '资源不存在。' })
     }
 
-    if (ensureAuthorized(request, reply) !== true) {
+    const tenant = requireTenantRequest(request, reply)
+    if (!tenant) {
+      return
+    }
+    if (ensureAuthorized(request, reply, tenant) !== true) {
       return
     }
     return reply.type('text/html; charset=utf-8').send(fs.createReadStream(webIndexPath))
   })
 
-  wsServer.on('connection', (socket) => {
+  wsServer.on('connection', (socket, request) => {
+    const tenant = resolveRelayTenantByHost(config.tenants, request?.headers?.['x-forwarded-host'] || request?.headers?.host || '')
+    if (!tenant) {
+      app.log.warn({ host: normalizeRelayHost(request?.headers?.host || request?.headers?.['x-forwarded-host'] || '') }, '[relay] WebSocket 连接未匹配到租户')
+      socket.close(1008, 'invalid_tenant')
+      return
+    }
+
+    const tenantState = getTenantState(tenant.key)
     let authenticated = false
     const authTimer = setTimeout(() => {
       if (!authenticated) {
-        app.log.warn('[relay] 设备认证超时，连接将被关闭')
+        app.log.warn({ tenantKey: tenant.key, host: tenant.hosts[0] || '' }, '[relay] 设备认证超时，连接将被关闭')
         socket.close(1008, 'missing_auth')
       }
     }, DEVICE_AUTH_TIMEOUT_MS)
@@ -401,23 +646,27 @@ async function startRelayServer() {
 
       if (!authenticated) {
         if (message.type !== 'hello') {
-          app.log.warn('[relay] 收到未认证设备的非法首包，连接将被关闭')
+          app.log.warn({ tenantKey: tenant.key, host: tenant.hosts[0] || '' }, '[relay] 收到未认证设备的非法首包，连接将被关闭')
           socket.close(1008, 'missing_hello')
           return
         }
 
         const providedToken = String(message.deviceToken || '').trim()
         const providedDeviceId = String(message.deviceId || '').trim()
-        if (!constantTimeEqual(providedToken, config.deviceToken)) {
+        if (!constantTimeEqual(providedToken, tenant.deviceToken)) {
           app.log.warn({
+            tenantKey: tenant.key,
+            host: tenant.hosts[0] || '',
             deviceId: providedDeviceId || 'unknown-device',
           }, '[relay] 设备令牌不匹配，连接将被拒绝')
           socket.close(1008, 'invalid_token')
           return
         }
-        if (config.expectedDeviceId && providedDeviceId !== config.expectedDeviceId) {
+        if (tenant.expectedDeviceId && providedDeviceId !== tenant.expectedDeviceId) {
           app.log.warn({
-            expectedDeviceId: config.expectedDeviceId,
+            tenantKey: tenant.key,
+            host: tenant.hosts[0] || '',
+            expectedDeviceId: tenant.expectedDeviceId,
             providedDeviceId: providedDeviceId || 'unknown-device',
           }, '[relay] 设备 ID 不匹配，连接将被拒绝')
           socket.close(1008, 'invalid_device')
@@ -427,28 +676,37 @@ async function startRelayServer() {
         authenticated = true
         clearTimeout(authTimer)
 
-        if (deviceState.socket && deviceState.socket !== socket) {
+        if (tenantState?.socket && tenantState.socket !== socket) {
           app.log.warn({
+            tenantKey: tenant.key,
+            host: tenant.hosts[0] || '',
             deviceId: providedDeviceId || 'unknown-device',
-          }, '[relay] 已有旧设备连接，将被新连接替换')
-          deviceState.socket.close(1012, 'replaced_by_new_connection')
+          }, '[relay] 当前租户已有旧设备连接，将被新连接替换')
+          tenantState.socket.close(1012, 'replaced_by_new_connection')
         }
 
-        deviceState.socket = socket
-        deviceState.deviceId = providedDeviceId
-        deviceState.connectedAt = new Date().toISOString()
-        deviceState.version = String(message.version || '').trim()
+        if (tenantState) {
+          tenantState.socket = socket
+          tenantState.deviceId = providedDeviceId
+          tenantState.connectedAt = new Date().toISOString()
+          tenantState.version = String(message.version || '').trim()
+        }
         socket.send(JSON.stringify({
           type: 'hello.ack',
           ok: true,
-          deviceId: deviceState.deviceId,
+          deviceId: providedDeviceId,
+          tenantKey: tenant.key,
         }))
-        app.log.info(`[relay] 设备已连接：${deviceState.deviceId || 'unknown-device'}`)
+        app.log.info({
+          tenantKey: tenant.key,
+          host: tenant.hosts[0] || '',
+          deviceId: providedDeviceId || 'unknown-device',
+        }, '[relay] 设备已连接')
         return
       }
 
       const record = requestMap.get(String(message.requestId || ''))
-      if (!record) {
+      if (!record || record.tenantKey !== tenant.key) {
         return
       }
 
@@ -477,8 +735,8 @@ async function startRelayServer() {
     socket.on('close', (code, reason) => {
       const closeReason = reason?.toString('utf8') || ''
       clearTimeout(authTimer)
-      if (deviceState.socket === socket) {
-        const disconnectedRequestIds = [...requestMap.keys()]
+      if (tenantState?.socket === socket) {
+        const disconnectedRequestIds = [...requestMap.keys()].filter((requestId) => requestMap.get(requestId)?.tenantKey === tenant.key)
         disconnectedRequestIds.forEach((requestId) => {
           const record = requestMap.get(requestId)
           requestMap.delete(requestId)
@@ -486,15 +744,20 @@ async function startRelayServer() {
             failRelayRequest(record, 503, 'PromptX 本地设备已断开。')
           }
         })
-        deviceState.socket = null
-        deviceState.connectedAt = ''
+        tenantState.socket = null
+        tenantState.deviceId = ''
+        tenantState.connectedAt = ''
+        tenantState.version = ''
         app.log.warn({
-          deviceId: deviceState.deviceId || 'unknown-device',
+          tenantKey: tenant.key,
+          host: tenant.hosts[0] || '',
           code: Number(code || 0),
           reason: closeReason || 'none',
         }, '[relay] 设备已断开')
       } else if (!authenticated) {
         app.log.warn({
+          tenantKey: tenant.key,
+          host: tenant.hosts[0] || '',
           code: Number(code || 0),
           reason: closeReason || 'none',
         }, '[relay] 未认证设备连接已关闭')
@@ -516,13 +779,24 @@ async function startRelayServer() {
 
   await app.listen({ host: config.host, port: config.port })
 
-  const accessUrl = config.publicUrl || `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${config.port}`
+  const accessUrl = `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${config.port}`
   app.log.info(`promptx relay running at ${accessUrl}`)
-  app.log.info('等待本地 PromptX 主动接入...')
+  app.log.info(`[relay] 已加载 ${config.tenants.length} 个租户，来源：${config.tenantSource}`)
+  config.tenants.forEach((tenant) => {
+    app.log.info({
+      tenantKey: tenant.key,
+      hosts: tenant.hosts,
+      expectedDeviceId: tenant.expectedDeviceId || '',
+      accessTokenEnabled: Boolean(tenant.accessToken),
+    }, '[relay] 租户已就绪，等待本地 PromptX 接入')
+  })
 }
 
 export {
+  normalizeRelayHost,
+  normalizeRelayTenantConfig,
   normalizeRequestBodyToBuffer,
   readRelayServerConfig,
+  resolveRelayTenantByHost,
   startRelayServer,
 }
