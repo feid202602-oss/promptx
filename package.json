@@ -1,6 +1,6 @@
 {
   "name": "@muyichengshayu/promptx",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "PromptX 本机 AI 协作工作台",
   "type": "module",
   "bin": {
@@ -14,9 +14,12 @@
     "packages/shared/src",
     "scripts/doctor.mjs",
     "scripts/relay.mjs",
+    "scripts/relay-service.mjs",
     "scripts/relay-tenant.mjs",
     "scripts/service.mjs",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "docs"
   ],
   "engines": {
     "node": ">=20.19.0 <21 || >=22.13.0 <23 || >=24 <25"
