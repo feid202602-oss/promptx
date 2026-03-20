@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import WorkbenchActivityPanel from '../components/WorkbenchActivityPanel.vue'
 import WorkbenchInputPanel from '../components/WorkbenchInputPanel.vue'
@@ -327,6 +327,16 @@ function stopCodex() {
   getCurrentPanelRef(currentTaskSlug.value)?.stop?.()
 }
 
+function focusMobileEditorIfNeeded() {
+  if (!isMobileLayout.value || mobileView.value !== 'detail' || mobileDetailTab.value !== 'input' || !currentTaskSlug.value) {
+    return
+  }
+
+  nextTick(() => {
+    editorRef.value?.focusEditor?.()
+  })
+}
+
 function handleBeforeUnload(event) {
   if (!hasUnsavedChanges.value && !uploading.value && !saving.value) {
     return
@@ -369,6 +379,16 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleWindowKeydown)
 })
+
+watch(
+  [isMobileLayout, mobileView, mobileDetailTab, currentTaskSlug],
+  ([mobile, view, tab, taskSlug]) => {
+    if (!mobile || view !== 'detail' || tab !== 'input' || !taskSlug) {
+      return
+    }
+    focusMobileEditorIfNeeded()
+  }
+)
 
 const taskListPanelListeners = {
   'update:draft-title': updateDraftTitle,

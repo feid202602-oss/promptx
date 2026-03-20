@@ -1,7 +1,9 @@
 <script setup>
 import { FolderOpen } from 'lucide-vue-next'
+import { computed } from 'vue'
+import WorkbenchSelect from './WorkbenchSelect.vue'
 
-defineProps({
+const props = defineProps({
   busy: {
     type: Boolean,
     default: false,
@@ -53,10 +55,14 @@ defineProps({
 })
 
 const emit = defineEmits(['open-directory-picker', 'update:cwd', 'update:engine', 'update:title'])
+const selectedEngineOption = computed(() => {
+  const current = String(props.engine || '').trim()
+  return props.engineOptions.find((item) => String(item?.value || '').trim() === current) || null
+})
 </script>
 
 <template>
-  <div class="grid gap-4" :class="mobile ? '' : 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'">
+  <div class="grid gap-4">
     <label class="theme-muted-text block text-xs">
       <span>项目标题（可选）</span>
       <input
@@ -68,23 +74,6 @@ const emit = defineEmits(['open-directory-picker', 'update:cwd', 'update:engine'
         :disabled="busy"
         @input="emit('update:title', $event.target.value)"
       >
-    </label>
-
-    <label class="theme-muted-text block text-xs">
-      <span>执行引擎</span>
-      <select
-        :value="engine"
-        class="tool-input mt-1"
-        :disabled="busy || !canEditEngine"
-        @change="emit('update:engine', $event.target.value)"
-      >
-        <option v-for="item in engineOptions" :key="item.value" :value="item.value" :disabled="item.enabled === false">
-          {{ item.label }}{{ item.enabled === false ? '（即将支持）' : '' }}
-        </option>
-      </select>
-      <p v-if="engineReadonlyMessage" class="theme-muted-text mt-2 text-[11px] leading-5">
-        {{ engineReadonlyMessage }}
-      </p>
     </label>
 
     <label class="theme-muted-text block text-xs">
@@ -118,6 +107,61 @@ const emit = defineEmits(['open-directory-picker', 'update:cwd', 'update:engine'
       </p>
       <p v-else-if="cwdReadonlyMessage" class="theme-muted-text mt-2 text-[11px] leading-5">
         {{ cwdReadonlyMessage }}
+      </p>
+    </label>
+
+    <label class="theme-muted-text block text-xs">
+      <span>执行引擎</span>
+      <div class="mt-1">
+        <WorkbenchSelect
+          :model-value="engine"
+          :options="engineOptions"
+          :disabled="busy || !canEditEngine"
+          placeholder="请选择执行引擎"
+          empty-text="暂无可用执行引擎"
+          :get-option-value="(item) => item?.value || ''"
+          @update:model-value="emit('update:engine', $event)"
+        >
+          <template #trigger="{ disabled }">
+            <div class="flex items-center gap-2 text-sm">
+              <span
+                class="min-w-0 flex-1 truncate"
+                :class="disabled ? 'theme-muted-text' : 'text-[var(--theme-textPrimary)]'"
+              >
+                {{ selectedEngineOption?.label || '请选择执行引擎' }}
+              </span>
+              <span
+                v-if="selectedEngineOption && selectedEngineOption.enabled === false"
+                class="theme-muted-text rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
+              >
+                即将支持
+              </span>
+            </div>
+          </template>
+
+          <template #option="{ option, selected, select }">
+            <button
+              type="button"
+              class="w-full rounded-sm border border-dashed px-3 py-2 text-left text-sm transition"
+              :class="selected ? 'theme-filter-active' : 'theme-filter-idle'"
+              :disabled="option?.enabled === false"
+              @click="select"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+                <span
+                  v-if="option?.enabled === false"
+                  class="theme-muted-text rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
+                >
+                  即将支持
+                </span>
+              </div>
+            </button>
+          </template>
+        </WorkbenchSelect>
+      </div>
+      <p v-if="engineReadonlyMessage" class="theme-muted-text mt-2 text-[11px] leading-5">
+        {{ engineReadonlyMessage }}
       </p>
     </label>
   </div>

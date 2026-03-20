@@ -194,52 +194,193 @@ export function extractClaudeSessionId(event = {}) {
   return candidates.map((value) => String(value || '').trim()).find(Boolean) || ''
 }
 
-export function normalizeClaudeEvent(event = {}) {
+export function createClaudeNormalizationState() {
+  return {
+    toolUses: new Map(),
+  }
+}
+
+function getClaudeMessageContentBlocks(event = {}) {
+  const content = event?.message?.content ?? event?.content
+  return Array.isArray(content) ? content : []
+}
+
+function stringifyClaudeToolInput(input = {}) {
+  if (!input || typeof input !== 'object') {
+    return ''
+  }
+
+  const command = String(input.command || '').trim()
+  if (command) {
+    return command
+  }
+
+  const singleValueKeys = ['file_path', 'path', 'pattern', 'query', 'url', 'description']
+  for (const key of singleValueKeys) {
+    const value = String(input[key] || '').trim()
+    if (value) {
+      return value
+    }
+  }
+
+  try {
+    const compact = JSON.stringify(input)
+    return compact.length <= 240 ? compact : `${compact.slice(0, 237)}...`
+  } catch {
+    return ''
+  }
+}
+
+function buildClaudeToolCommand(name = '', input = {}) {
+  const toolName = String(name || 'Claude Code tool').trim() || 'Claude Code tool'
+  const inputSummary = stringifyClaudeToolInput(input)
+  return inputSummary ? `${toolName}: ${inputSummary}` : toolName
+}
+
+function createClaudeToolUseEvent(block = {}, state = createClaudeNormalizationState()) {
+  const toolUseId = String(block?.id || '').trim()
+  const name = String(block?.name || block?.tool_name || 'Claude Code tool').trim() || 'Claude Code tool'
+  const input = block?.input && typeof block.input === 'object' ? block.input : {}
+  const command = buildClaudeToolCommand(name, input)
+
+  if (toolUseId) {
+    state.toolUses.set(toolUseId, {
+      name,
+      command,
+    })
+  }
+
+  return {
+    type: 'item.started',
+    item: {
+      type: 'command_execution',
+      command,
+      status: 'in_progress',
+    },
+  }
+}
+
+function createClaudeToolResultEvent(block = {}, state = createClaudeNormalizationState()) {
+  const toolUseId = String(block?.tool_use_id || block?.toolUseId || '').trim()
+  const remembered = toolUseId ? state.toolUses.get(toolUseId) : null
+  const output = String(block?.content || block?.result || '').trim()
+  const isError = Boolean(block?.is_error)
+
+  if (toolUseId) {
+    state.toolUses.delete(toolUseId)
+  }
+
+  return {
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      command: remembered?.command || remembered?.name || 'Claude Code tool',
+      status: isError ? 'failed' : 'completed',
+      exit_code: isError ? 1 : 0,
+      aggregated_output: output,
+    },
+  }
+}
+
+export function normalizeClaudeEvents(event = {}, state = createClaudeNormalizationState()) {
   const eventType = String(event?.type || '').trim().toLowerCase()
+  const normalizedEvents = []
+
+  if (eventType === 'system' && String(event?.subtype || '').trim().toLowerCase() === 'init') {
+    return [{
+      type: 'thread.started',
+      thread_id: extractClaudeSessionId(event),
+    }]
+  }
 
   if (eventType === 'assistant') {
-    const text = extractClaudeAssistantText(event)
-    return text
-      ? {
-          type: 'item.completed',
-          item: {
-            type: 'agent_message',
-            text,
-          },
+    const blocks = getClaudeMessageContentBlocks(event)
+
+    blocks.forEach((block) => {
+      const blockType = String(block?.type || '').trim().toLowerCase()
+      if (blockType === 'thinking') {
+        const text = String(block?.thinking || block?.text || '').trim()
+        if (text) {
+          normalizedEvents.push({
+            type: 'item.started',
+            item: {
+              type: 'reasoning',
+              text,
+            },
+          })
         }
-      : null
+        return
+      }
+
+      if (blockType === 'tool_use') {
+        normalizedEvents.push(createClaudeToolUseEvent(block, state))
+        return
+      }
+
+      if (blockType === 'text') {
+        const text = String(block?.text || '').trim()
+        if (text) {
+          normalizedEvents.push({
+            type: 'item.completed',
+            item: {
+              type: 'agent_message',
+              text,
+            },
+          })
+        }
+      }
+    })
+
+    return normalizedEvents
+  }
+
+  if (eventType === 'user') {
+    const blocks = getClaudeMessageContentBlocks(event)
+    blocks.forEach((block) => {
+      const blockType = String(block?.type || '').trim().toLowerCase()
+      if (blockType === 'tool_result') {
+        normalizedEvents.push(createClaudeToolResultEvent(block, state))
+      }
+    })
+    return normalizedEvents
   }
 
   if (eventType === 'tool_use' || eventType === 'tool_use.delta') {
-    return {
-      type: 'item.started',
-      item: {
-        type: 'command_execution',
-        command: String(event?.name || event?.tool_name || eventType).trim() || 'Claude Code tool',
-      },
-    }
+    return [createClaudeToolUseEvent(event, state)]
   }
 
   if (eventType === 'result') {
     const text = extractClaudeResultText(event)
-    return {
+    const usage = event?.usage && typeof event.usage === 'object'
+      ? {
+          input_tokens: Number(event.usage.input_tokens) || 0,
+          output_tokens: Number(event.usage.output_tokens) || 0,
+          cached_input_tokens: Number(event.usage.cached_input_tokens ?? event.usage.cache_read_input_tokens) || 0,
+        }
+      : null
+    return [{
       type: 'turn.completed',
       result: text,
-    }
+      ...(usage ? { usage } : {}),
+    }]
   }
 
   if (eventType === 'error') {
     const message = extractClaudeResultText(event) || extractClaudeAssistantText(event) || String(event?.error || event?.message || '').trim()
-    return {
+    return [{
       type: 'error',
       message,
-    }
+    }]
   }
 
-  return {
+  return [{
     type: `claude.${eventType || 'event'}`,
     detail: extractClaudeAssistantText(event) || extractClaudeResultText(event) || '',
-  }
+  }]
+}
+
+export function normalizeClaudeEvent(event = {}, state = createClaudeNormalizationState()) {
+  return normalizeClaudeEvents(event, state)[0] || null
 }
 
 function createExecArgs(session, prompt) {
@@ -280,6 +421,7 @@ export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks 
   let lastStderrLine = ''
   let finalMessage = ''
   let finalSessionId = String(session.engineSessionId || session.engineThreadId || session.codexThreadId || '').trim()
+  const normalizationState = createClaudeNormalizationState()
 
   const rememberSessionId = (sessionId) => {
     const value = String(sessionId || '').trim()
@@ -305,13 +447,13 @@ export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks 
       rememberSessionId(sessionId)
     }
 
-    const normalizedEvent = normalizeClaudeEvent(event)
-    if (normalizedEvent) {
+    const normalizedEvents = normalizeClaudeEvents(event, normalizationState)
+    normalizedEvents.forEach((normalizedEvent) => {
       onEvent({
         type: 'codex',
         event: normalizedEvent,
       })
-    }
+    })
 
     if (String(event?.type || '').trim().toLowerCase() === 'result') {
       finalMessage = extractClaudeResultText(event) || finalMessage

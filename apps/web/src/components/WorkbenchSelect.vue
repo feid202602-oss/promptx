@@ -168,8 +168,10 @@ onBeforeUnmount(() => {
   <div ref="rootRef" class="relative min-w-0">
     <button
       type="button"
-      class="flex w-full items-center gap-3 rounded-sm border border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] px-3 py-2 text-left text-[var(--theme-textPrimary)] transition hover:border-[var(--theme-borderStrong)] focus:border-[var(--theme-borderStrong)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-focusRing)]"
-      :class="disabled ? 'cursor-not-allowed opacity-60' : ''"
+      class="flex w-full items-center gap-3 rounded-sm border px-3 py-2 text-left transition focus:outline-none focus:ring-2"
+      :class="disabled
+        ? 'cursor-not-allowed border-[color-mix(in_srgb,var(--theme-borderDefault)_88%,var(--theme-textMuted))] bg-[color-mix(in_srgb,var(--theme-appPanelMuted)_82%,var(--theme-appBg))] text-[var(--theme-textMuted)]'
+        : 'border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] text-[var(--theme-textPrimary)] hover:border-[var(--theme-borderStrong)] focus:border-[var(--theme-borderStrong)] focus:ring-[var(--theme-focusRing)]'"
       :disabled="disabled"
       @click="toggleDropdown"
       @keydown.down.prevent="openDropdown"
@@ -182,6 +184,7 @@ onBeforeUnmount(() => {
           :selected-option="selectedOption"
           :open="open"
           :loading="loading"
+          :disabled="disabled"
         >
           <div class="theme-muted-text text-sm">
             {{ selectedOption ? String(getOptionValue(selectedOption)) : placeholder }}
@@ -189,7 +192,7 @@ onBeforeUnmount(() => {
         </slot>
       </div>
 
-      <div class="theme-muted-text flex shrink-0 items-center gap-2">
+      <div class="flex shrink-0 items-center gap-2" :class="disabled ? 'text-[var(--theme-textMuted)] opacity-80' : 'theme-muted-text'">
         <LoaderCircle v-if="loading" class="h-4 w-4 animate-spin" />
         <ChevronDown class="h-4 w-4 transition" :class="open ? 'rotate-180' : ''" />
       </div>

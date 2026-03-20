@@ -15,6 +15,7 @@ import {
   subscribeTaskRunEvents,
   useWorkbenchRealtime,
 } from './useWorkbenchRealtime.js'
+import { getAgentEngineLabel, normalizeAgentEngine } from '../lib/agentEngines.js'
 
 const SESSION_REFRESH_TTL = 1500
 const WORKSPACE_REFRESH_TTL = 30000
@@ -128,6 +129,24 @@ function createTurnSummaryState() {
     latestActivity: '',
     latestDetail: '',
   }
+}
+
+export function getTurnAgentEngine(turn = {}) {
+  return normalizeAgentEngine(turn?.engine)
+}
+
+export function getTurnAgentLabel(turn = {}) {
+  return getAgentEngineLabel(getTurnAgentEngine(turn))
+}
+
+function getAgentCliCommand(engine = 'codex') {
+  return normalizeAgentEngine(engine) === 'claude-code'
+    ? 'claude --version'
+    : 'codex --version'
+}
+
+function getAgentFailureText(engine = 'codex') {
+  return `${getAgentEngineLabel(engine)} 执行失败`
 }
 
 function parseCodexRetryMessage(message = '') {
@@ -244,12 +263,13 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
   }
 
   const summary = turn.summary
+  const agentLabel = getTurnAgentLabel(turn)
   const eventType = String(event.type || '').trim()
   const item = event.item || {}
 
   if (eventType === 'turn.started') {
     summary.currentActivity = '正在分析任务'
-    summary.latestActivity = 'Codex 开始执行'
+    summary.latestActivity = `${agentLabel} 开始执行`
     summary.latestDetail = ''
     return
   }
@@ -257,7 +277,7 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
   if (eventType === 'turn.completed') {
     summary.currentActivity = ''
     summary.waitingAgentCount = 0
-    summary.latestActivity = 'Codex 执行完成'
+    summary.latestActivity = `${agentLabel} 执行完成`
     summary.latestDetail = ''
     return
   }
@@ -280,12 +300,19 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
     }
 
     summary.currentActivity = ''
-    summary.latestActivity = 'Codex 返回错误'
+    summary.latestActivity = `${agentLabel} 返回错误`
     summary.latestDetail = summarizeText(extractCodexEventErrorText(event), 120)
     return
   }
 
   if (eventType === 'item.started') {
+    if (item.type === 'reasoning') {
+      summary.currentActivity = '正在思考'
+      summary.latestActivity = '正在思考'
+      summary.latestDetail = summarizeText(item.text, 120)
+      return
+    }
+
     if (item.type === 'command_execution') {
       summary.currentActivity = '正在执行命令'
       summary.latestActivity = '开始执行命令'
@@ -395,7 +422,7 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
 
   if (item.type === 'agent_message') {
     summary.currentActivity = ''
-    summary.latestActivity = 'Codex 已返回结果'
+    summary.latestActivity = `${agentLabel} 已返回结果`
     summary.latestDetail = summarizeText(item.text, 120)
   }
 }
@@ -468,7 +495,7 @@ export function getTurnSummaryStatus(turn = {}) {
   }
 
   if (turn.status === 'running') {
-    return '当前：正在等待 Codex 返回更多事件'
+    return `当前：正在等待 ${getTurnAgentLabel(turn)} 返回更多事件`
   }
 
   return ''
@@ -486,8 +513,8 @@ export function hasTurnSummary(turn = {}) {
 const CODEX_ISSUE_PATTERNS = [
   {
     type: 'startup_config',
-    title: 'Codex 启动配置冲突',
-    summary: 'PromptX 默认会附带满血模式和跳过 Git 仓库检查参数；如果仍出现这类错误，通常说明本机 Codex 包装脚本、别名或外部环境覆盖了实际启动参数。',
+    title: (engine) => `${getAgentEngineLabel(engine)} 启动配置冲突`,
+    summary: (engine) => `${getAgentEngineLabel(engine)} 当前启动参数可能与本机包装脚本、别名或外部环境配置冲突，请检查 CLI 启动方式。`,
     patterns: [
       /not inside a trusted directory/i,
       /do you trust the contents of this directory/i,
@@ -501,7 +528,7 @@ const CODEX_ISSUE_PATTERNS = [
   {
     type: 'billing',
     title: '额度或账单异常',
-    summary: 'Codex 可能因为额度不足、欠费或账单限制而无法继续执行。',
+    summary: (engine) => `${getAgentEngineLabel(engine)} 可能因为额度不足、欠费或账单限制而无法继续执行。`,
     patterns: [
       /insufficient_quota/i,
       /exceeded your current quota/i,
@@ -518,7 +545,7 @@ const CODEX_ISSUE_PATTERNS = [
   {
     type: 'permission',
     title: '权限不足',
-    summary: 'Codex 当前权限不够，无法访问所需文件、命令或资源。',
+    summary: (engine) => `${getAgentEngineLabel(engine)} 当前权限不够，无法访问所需文件、命令或资源。`,
     patterns: [
       /permission denied/i,
       /insufficient permissions?/i,
@@ -535,7 +562,7 @@ const CODEX_ISSUE_PATTERNS = [
   {
     type: 'rate_limit',
     title: '请求过于频繁',
-    summary: 'Codex 可能触发了限流，请稍后再试。',
+    summary: (engine) => `${getAgentEngineLabel(engine)} 可能触发了限流，请稍后再试。`,
     patterns: [
       /rate limit/i,
       /too many requests/i,
@@ -562,7 +589,7 @@ const CODEX_ISSUE_PATTERNS = [
   {
     type: 'model_unavailable',
     title: '模型或服务暂不可用',
-    summary: 'Codex 背后的模型或服务当前不可用，请稍后重试。',
+    summary: (engine) => `${getAgentEngineLabel(engine)} 背后的模型或服务当前不可用，请稍后重试。`,
     patterns: [
       /model .*not found/i,
       /model .*unavailable/i,
@@ -577,7 +604,7 @@ const CODEX_ISSUE_PATTERNS = [
   {
     type: 'network',
     title: '网络连接异常',
-    summary: 'Codex 在请求过程中遇到了网络问题或连接超时。',
+    summary: (engine) => `${getAgentEngineLabel(engine)} 在请求过程中遇到了网络问题或连接超时。`,
     patterns: [
       /timed out/i,
       /\btimeout\b/i,
@@ -599,11 +626,13 @@ const CODEX_ISSUE_PATTERNS = [
   },
   {
     type: 'cli_missing',
-    title: 'Codex CLI 不可用',
-    summary: '当前环境没有正确安装或配置 Codex CLI。',
+    title: (engine) => `${getAgentEngineLabel(engine)} CLI 不可用`,
+    summary: (engine) => `当前环境没有正确安装或配置 ${getAgentEngineLabel(engine)} CLI。`,
     patterns: [
       /找不到 Codex CLI/,
+      /找不到 Claude Code CLI/,
       /codex --version/i,
+      /claude --version/i,
       /enoent/i,
       /not recognized as an internal or external command/i,
       /command not found/i,
@@ -611,7 +640,7 @@ const CODEX_ISSUE_PATTERNS = [
   },
 ]
 
-export function classifyCodexIssue(message = '') {
+export function classifyCodexIssue(message = '', engine = 'codex') {
   const text = String(message || '').trim()
   if (!text) {
     return null
@@ -624,19 +653,19 @@ export function classifyCodexIssue(message = '') {
 
   return {
     type: matched.type,
-    title: matched.title,
-    summary: matched.summary,
+    title: typeof matched.title === 'function' ? matched.title(engine) : matched.title,
+    summary: typeof matched.summary === 'function' ? matched.summary(engine) : matched.summary,
     rawMessage: text,
   }
 }
 
-export function formatCodexIssueMessage(message = '') {
+export function formatCodexIssueMessage(message = '', engine = 'codex') {
   const text = String(message || '').trim()
   if (!text) {
     return ''
   }
 
-  const issue = classifyCodexIssue(text)
+  const issue = classifyCodexIssue(text, engine)
   if (!issue) {
     return text
   }
@@ -694,23 +723,23 @@ export function extractCodexEventErrorText(event = {}) {
   return extractTextFromUnknownError(event)
 }
 
-export function formatCodexEvent(event = {}) {
+export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'codex') {
   const eventType = String(event.type || '').trim()
   const item = event.item || {}
 
   if (!eventType) {
-    return { title: '收到 Codex 事件', detail: '' }
+    return { title: `收到 ${agentLabel} 事件`, detail: '' }
   }
 
   if (eventType === 'thread.started') {
     return {
-      title: 'Codex 线程已创建',
+      title: `${agentLabel} 会话已创建`,
       detail: event.thread_id ? `线程 ID: ${event.thread_id}` : '',
     }
   }
 
   if (eventType === 'turn.started') {
-    return { title: 'Codex 开始执行', detail: '' }
+    return { title: `${agentLabel} 开始执行`, detail: '' }
   }
 
   if (eventType === 'turn.completed') {
@@ -722,31 +751,39 @@ export function formatCodexEvent(event = {}) {
       ].filter(Boolean).join(' / ')
       : ''
     return {
-      title: 'Codex 执行完成',
+      title: `${agentLabel} 执行完成`,
       detail: usage,
     }
   }
 
   if (eventType === 'error' || eventType === 'turn.failed') {
-    const rawMessage = extractCodexEventErrorText(event) || 'Codex 执行失败'
+    const rawMessage = extractCodexEventErrorText(event) || `${agentLabel} 执行失败`
     const retrying = eventType === 'error' ? parseCodexRetryMessage(rawMessage) : null
     if (retrying) {
       return {
         kind: 'info',
         title: `网络异常，正在重试 (${retrying.attempt}/${retrying.total})`,
-        detail: formatCodexIssueMessage(retrying.reason || retrying.rawMessage),
+        detail: formatCodexIssueMessage(retrying.reason || retrying.rawMessage, engine),
       }
     }
 
-    const issue = classifyCodexIssue(rawMessage)
+    const issue = classifyCodexIssue(rawMessage, engine)
     return {
       kind: 'error',
-      title: issue?.title || (eventType === 'turn.failed' ? '本轮运行失败' : 'Codex 返回错误'),
-      detail: formatCodexIssueMessage(rawMessage),
+      title: issue?.title || (eventType === 'turn.failed' ? '本轮运行失败' : `${agentLabel} 返回错误`),
+      detail: formatCodexIssueMessage(rawMessage, engine),
     }
   }
 
   if (eventType === 'item.started') {
+    if (item.type === 'reasoning') {
+      return {
+        kind: 'info',
+        title: '正在思考',
+        detail: item.text || '',
+      }
+    }
+
     if (item.type === 'web_search') {
       return formatWebSearchEvent(item, 'started')
     }
@@ -793,7 +830,7 @@ export function formatCodexEvent(event = {}) {
     if (item.type === 'agent_message' && item.text) {
       return {
         kind: 'result',
-        title: 'Codex 已返回结果',
+        title: `${agentLabel} 已返回结果`,
         detail: '',
       }
     }
@@ -895,6 +932,7 @@ function createBaseTurn(run = {}, nextTurnId) {
   return {
     id: nextTurnId(),
     runId: String(run.id || '').trim(),
+    engine: getTurnAgentEngine(run),
     prompt: String(run.prompt || '').trim(),
     promptBlocks,
     status: 'completed',
@@ -943,6 +981,7 @@ function upsertRetryingEvent(turn, entry, nextLogId) {
 export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSession = () => {}) {
   if (payload.type === 'session') {
     mergeSession(payload.session)
+    turn.engine = getTurnAgentEngine(payload.session || turn)
     appendTurnEvent(turn, {
       title: `已连接项目：${payload.session?.title || '未命名项目'}`,
       detail: payload.session?.cwd ? `工作目录：${payload.session.cwd}` : '',
@@ -952,6 +991,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
 
   if (payload.type === 'session.updated') {
     mergeSession(payload.session)
+    turn.engine = getTurnAgentEngine(payload.session || turn)
     appendTurnEvent(turn, {
       title: '项目会话已更新',
       detail: payload.session?.started ? '后续请求会继续复用当前项目的执行引擎会话。' : '',
@@ -972,11 +1012,11 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
   }
 
   if (payload.type === 'stderr') {
-    const issue = classifyCodexIssue(payload.text)
+    const issue = classifyCodexIssue(payload.text, turn.engine)
     appendTurnEvent(turn, {
       kind: 'error',
       title: issue?.title || 'stderr',
-      detail: formatCodexIssueMessage(payload.text),
+      detail: formatCodexIssueMessage(payload.text, turn.engine),
     }, nextLogId)
     return
   }
@@ -992,7 +1032,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
 
   if (payload.type === 'codex') {
     syncTurnSummaryFromCodexEvent(turn, payload.event)
-    const formattedEvent = formatCodexEvent(payload.event)
+    const formattedEvent = formatCodexEvent(payload.event, getTurnAgentLabel(turn), turn.engine)
     if (String(formattedEvent.title || '').startsWith('网络异常，正在重试')) {
       upsertRetryingEvent(turn, formattedEvent, nextLogId)
     } else {
@@ -1001,11 +1041,11 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     if (payload.event?.type === 'item.completed' && payload.event?.item?.type === 'agent_message' && payload.event?.item?.text) {
       turn.responseMessage = payload.event.item.text
     }
-    const message = extractCodexEventErrorText(payload.event) || 'Codex 执行失败'
+    const message = extractCodexEventErrorText(payload.event) || `${getTurnAgentLabel(turn)} 执行失败`
     const retrying = payload.event?.type === 'error' ? parseCodexRetryMessage(message) : null
     if (!retrying && (payload.event?.type === 'error' || payload.event?.type === 'turn.failed')) {
-      const message = extractCodexEventErrorText(payload.event) || 'Codex 执行失败'
-      turn.errorMessage = formatCodexIssueMessage(message)
+      const message = extractCodexEventErrorText(payload.event) || `${getTurnAgentLabel(turn)} 执行失败`
+      turn.errorMessage = formatCodexIssueMessage(message, turn.engine)
       turn.status = 'error'
     }
     return
@@ -1032,16 +1072,16 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
   }
 
   if (payload.type === 'error') {
-    const issue = classifyCodexIssue(payload.message)
+    const issue = classifyCodexIssue(payload.message, turn.engine)
     appendTurnEvent(turn, {
       kind: 'error',
       title: issue?.title || '执行失败',
-      detail: formatCodexIssueMessage(payload.message || 'Codex 执行失败'),
+      detail: formatCodexIssueMessage(payload.message || `${getTurnAgentLabel(turn)} 执行失败`, turn.engine),
     }, nextLogId)
   }
 }
 
-function shouldPreferEventDerivedError(runError = '', eventError = '') {
+function shouldPreferEventDerivedError(runError = '', eventError = '', engine = 'codex') {
   const persisted = String(runError || '').trim()
   const derived = String(eventError || '').trim()
 
@@ -1057,12 +1097,12 @@ function shouldPreferEventDerivedError(runError = '', eventError = '') {
     return true
   }
 
-  if (/^Codex 执行失败[。.]?$/i.test(persisted)) {
+  if (/执行失败[。.]?$/i.test(persisted)) {
     return true
   }
 
-  const persistedIssue = classifyCodexIssue(persisted)
-  const derivedIssue = classifyCodexIssue(derived)
+  const persistedIssue = classifyCodexIssue(persisted, engine)
+  const derivedIssue = classifyCodexIssue(derived, engine)
 
   return !persistedIssue && Boolean(derivedIssue)
 }
@@ -1071,14 +1111,14 @@ export function syncTurnStateFromRun(turn, run = {}) {
   turn.status = run.status || 'completed'
   turn.responseMessage = String(run.responseMessage || turn.responseMessage || '')
   turn.finishedAt = String(run.finishedAt || turn.finishedAt || '')
-  const persistedError = formatCodexIssueMessage(String(run.errorMessage || ''))
+  const persistedError = formatCodexIssueMessage(String(run.errorMessage || ''), turn.engine)
   const eventDerivedError = String(turn.errorMessage || '')
-  turn.errorMessage = shouldPreferEventDerivedError(run.errorMessage, eventDerivedError)
+  turn.errorMessage = shouldPreferEventDerivedError(run.errorMessage, eventDerivedError, turn.engine)
     ? eventDerivedError
     : persistedError
 
   if (turn.status === 'completed' && !turn.responseMessage) {
-    turn.responseMessage = '本轮 Codex 执行已完成，没有返回额外文本。'
+    turn.responseMessage = `本轮 ${getTurnAgentLabel(turn)} 执行已完成，没有返回额外文本。`
   }
 
   return turn
@@ -1102,7 +1142,7 @@ export function applyRunEventToTurn(turn, event = {}, nextLogId, mergeSession = 
     turn.finishedAt = new Date().toISOString()
   } else if (payload.type === 'error') {
     turn.status = 'error'
-    turn.errorMessage = formatCodexIssueMessage(String(payload.message || turn.errorMessage || 'Codex 执行失败'))
+    turn.errorMessage = formatCodexIssueMessage(String(payload.message || turn.errorMessage || `${getTurnAgentLabel(turn)} 执行失败`), turn.engine)
     turn.finishedAt = new Date().toISOString()
   }
 
@@ -1976,6 +2016,7 @@ export function useCodexSessionPanel(props, emit) {
     formatTurnTime,
     getProcessCardClass,
     getProcessStatus,
+    getTurnAgentLabel,
     getTurnSummaryDetail,
     getDisplayTurnSummaryItems,
     getTurnSummaryStatus,

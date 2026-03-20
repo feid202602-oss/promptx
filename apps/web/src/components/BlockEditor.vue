@@ -590,22 +590,89 @@ function openFilePicker() {
   fileInputRef.value?.click()
 }
 
-function handleSurfaceClick(event) {
-  if (event.target !== surfaceRef.value) {
+function isEditorInteractiveTarget(target) {
+  return Boolean(target?.closest?.('textarea,button,input,select,option,label,a,[contenteditable="true"]'))
+}
+
+function findNearestTextareaIndex(clientY = 0) {
+  const candidates = textareas.value
+    .map((element, index) => ({ element, index }))
+    .filter((item) => item.element)
+
+  if (!candidates.length) {
+    return -1
+  }
+
+  const nearest = candidates.reduce((best, item) => {
+    const rect = item.element.getBoundingClientRect()
+    const centerY = rect.top + (rect.height / 2)
+    const distance = Math.abs(clientY - centerY)
+    if (!best || distance < best.distance) {
+      return { index: item.index, distance }
+    }
+    return best
+  }, null)
+
+  return nearest?.index ?? -1
+}
+
+function findNearestTextIndexFromActive() {
+  if (!Array.isArray(blocks.value) || !blocks.value.length) {
+    return -1
+  }
+
+  const currentIndex = Math.max(0, Math.min(activeIndex.value ?? 0, blocks.value.length - 1))
+  if (textareas.value[currentIndex]) {
+    return currentIndex
+  }
+
+  let bestIndex = -1
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  textareas.value.forEach((element, index) => {
+    if (!element) {
+      return
+    }
+    const distance = Math.abs(index - currentIndex)
+    if (distance < bestDistance || (distance === bestDistance && index > currentIndex)) {
+      bestIndex = index
+      bestDistance = distance
+    }
+  })
+
+  return bestIndex
+}
+
+function focusNearestTextInput(clientY = 0, options = {}) {
+  const { preferActive = false } = options
+  const nearestIndex = preferActive
+    ? findNearestTextIndexFromActive()
+    : findNearestTextareaIndex(clientY)
+  if (nearestIndex < 0) {
     return
   }
 
   closeMentionPicker()
+  activeIndex.value = nearestIndex
+  nextTick(() => {
+    const target = textareas.value[nearestIndex]
+    const nextPosition = clientY <= (target?.getBoundingClientRect?.().top ?? 0)
+      ? 0
+      : (target?.value?.length || 0)
+    placeCursor(nearestIndex, nextPosition)
+  })
+}
 
-  const lastTextIndex = [...blocks.value]
-    .map((block, index) => ({ block, index }))
-    .filter((item) => item.block.type === BLOCK_TYPES.TEXT)
-    .at(-1)?.index
-
-  if (typeof lastTextIndex === 'number') {
-    activeIndex.value = lastTextIndex
-    nextTick(() => placeCursor(lastTextIndex, textareas.value[lastTextIndex]?.value.length || 0))
+function handleSurfaceClick(event) {
+  if (isEditorInteractiveTarget(event.target)) {
+    return
   }
+
+  if (!surfaceRef.value?.contains?.(event.target)) {
+    return
+  }
+
+  focusNearestTextInput(event.clientY || 0, { preferActive: true })
 }
 
 function handleTextInput(index, event) {

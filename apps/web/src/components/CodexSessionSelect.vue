@@ -57,11 +57,11 @@ function getOptionClass(selected) {
     @update:model-value="emit('update:modelValue', $event)"
     @refresh-intent="emit('refresh-intent')"
   >
-    <template #trigger="{ selectedOption }">
+    <template #trigger="{ selectedOption, disabled }">
       <template v-if="selectedOption">
         <div class="flex items-center gap-2 text-sm">
           <span class="min-w-0 flex-1 truncate">
-            <span class="font-medium text-[var(--theme-textPrimary)]">{{ getSessionTitle(selectedOption) }}</span>
+            <span class="font-medium" :class="disabled ? 'theme-muted-text' : 'text-[var(--theme-textPrimary)]'">{{ getSessionTitle(selectedOption) }}</span>
             <span class="theme-muted-text ml-2 font-mono text-[11px]">{{ getSessionCwd(selectedOption) }}</span>
           </span>
           <span class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]">

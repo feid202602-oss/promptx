@@ -44,6 +44,20 @@ test('formatCodexEvent formats command completion details', () => {
   assert.match(event.detail, /pnpm build/)
 })
 
+test('formatCodexEvent formats reasoning steps', () => {
+  const event = formatCodexEvent({
+    type: 'item.started',
+    item: {
+      type: 'reasoning',
+      text: '先检查一下目录结构和依赖关系',
+    },
+  }, 'Claude Code', 'claude-code')
+
+  assert.equal(event.kind, 'info')
+  assert.equal(event.title, '正在思考')
+  assert.match(event.detail, /目录结构/)
+})
+
 test('getProcessStatus reflects stopped run', () => {
   assert.equal(getProcessStatus({ status: 'stopped' }), '已停止')
 })

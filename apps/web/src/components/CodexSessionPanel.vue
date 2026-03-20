@@ -73,6 +73,7 @@ const {
   formatTurnTime,
   getProcessCardClass,
   getProcessStatus,
+  getTurnAgentLabel,
   getDisplayTurnSummaryItems,
   getTurnSummaryDetail,
   getTurnSummaryStatus,
@@ -395,7 +396,7 @@ defineExpose({
           v-if="!turns.length"
           class="theme-empty-state px-4 py-6 text-sm"
         >
-          这里会显示项目执行过程和 Codex 回复。
+          这里会显示项目执行过程和模型回复。
         </div>
 
         <div v-for="turn in turns" :key="turn.id" class="space-y-3">
@@ -505,7 +506,7 @@ defineExpose({
               >
                 已折叠 {{ turn.events.length }} 条过程日志
               </div>
-              <p v-else class="mt-3 text-xs text-current/80">正在等待 Codex 返回事件...</p>
+              <p v-else class="mt-3 text-xs text-current/80">正在等待 {{ getTurnAgentLabel(turn) }} 返回事件...</p>
               <div
                 v-if="hasTurnSummary(turn)"
                 class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/15 px-3 py-2 text-xs text-current/80"
@@ -551,7 +552,7 @@ defineExpose({
                 : 'border-[var(--theme-responseBorder)] bg-[var(--theme-responseBg)] text-[var(--theme-responseText)]'"
             >
               <div class="flex items-center justify-between gap-3 text-xs text-current/80">
-                <span>{{ turn.errorMessage ? 'Codex 错误' : 'Codex 回复' }}</span>
+                <span>{{ turn.errorMessage ? `${getTurnAgentLabel(turn)} 错误` : `${getTurnAgentLabel(turn)} 回复` }}</span>
                 <button
                   v-if="canCollapseResponse(turn)"
                   type="button"
