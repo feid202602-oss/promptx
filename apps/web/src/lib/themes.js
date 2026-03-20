@@ -72,6 +72,7 @@ export const THEME_PRESETS = [
     name: 'PromptX Glass Light',
     shortName: 'Glass Light',
     mode: 'light',
+    mobileEnabled: false,
     description: '雾面玻璃质感，保留 PromptX 的石色与绿调。',
     swatches: ['#e5eeea', '#f7fbf9', '#bdd0c7', '#2f7b68'],
     colors: {

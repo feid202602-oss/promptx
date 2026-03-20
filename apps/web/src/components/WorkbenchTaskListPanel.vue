@@ -1,5 +1,5 @@
 <script setup>
-import { Blocks, CircleAlert, PencilLine, Plus, Settings2, Trash2 } from 'lucide-vue-next'
+import { Blocks, CircleAlert, Clock3, PencilLine, Plus, Settings2, Trash2 } from 'lucide-vue-next'
 
 const props = defineProps({
   loadingTasks: {
@@ -180,10 +180,16 @@ function getTaskWorkspaceBadgeClass(task) {
               <button
                 v-else
                 type="button"
-                class="block h-5 w-full cursor-pointer truncate bg-transparent p-0 text-left text-sm leading-5"
+                class="inline-flex h-5 w-full items-center gap-1.5 truncate bg-transparent p-0 text-left text-sm leading-5"
                 :class="task.slug === currentTaskSlug ? 'font-semibold' : 'font-medium'"
                 @click.stop="emit('title-click', task.slug)"
-              >{{ task.displayTitle }}</button>
+              >
+                <Clock3
+                  v-if="task.automation?.enabled"
+                  class="h-3.5 w-3.5 shrink-0 opacity-70"
+                />
+                <span class="min-w-0 truncate">{{ task.displayTitle }}</span>
+              </button>
             </div>
             <div class="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] opacity-80">
               <span

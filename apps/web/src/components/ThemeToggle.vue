@@ -6,8 +6,8 @@ import { useTheme } from '../composables/useTheme.js'
 const { currentTheme, setTheme, themes } = useTheme()
 
 const themeGroups = computed(() => {
-  const light = themes.filter((theme) => theme.mode === 'light')
-  const dark = themes.filter((theme) => theme.mode === 'dark')
+  const light = themes.value.filter((theme) => theme.mode === 'light')
+  const dark = themes.value.filter((theme) => theme.mode === 'dark')
   return [
     { id: 'light', label: '浅色主题', items: light },
     { id: 'dark', label: '深色主题', items: dark },
