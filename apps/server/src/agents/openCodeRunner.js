@@ -16,6 +16,7 @@ import {
   createTurnCompletedEvent,
   getAgentEngineLabel,
 } from '../../../../packages/shared/src/index.js'
+import { createManagedSpawnOptions, forceStopChildProcess } from '../processControl.js'
 
 const OPENCODE_BIN = process.env.OPENCODE_BIN || 'opencode'
 const RESOLVED_OPENCODE_BIN = resolveOpenCodeBinary()
@@ -67,16 +68,10 @@ function resolveOpenCodeBinary() {
 }
 
 function createOpenCodeSpawn(commandArgs = [], cwd = '') {
-  const options = {
-    env: process.env,
+  const options = createManagedSpawnOptions({
+    cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  }
-
-  const normalizedCwd = String(cwd || '').trim()
-  if (normalizedCwd) {
-    options.cwd = normalizedCwd
-  }
+  })
 
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(RESOLVED_OPENCODE_BIN)) {
     return spawn(
@@ -446,9 +441,7 @@ export function streamPromptToOpenCodeSession(sessionInput, prompt, callbacks = 
     child,
     result,
     cancel() {
-      if (!child.killed) {
-        child.kill('SIGTERM')
-      }
+      forceStopChildProcess(child)
     },
   }
 }
