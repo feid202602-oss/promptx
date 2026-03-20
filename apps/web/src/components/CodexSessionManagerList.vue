@@ -61,14 +61,14 @@ const emit = defineEmits(['create', 'select'])
 
 function getCardClass(session) {
   if (props.mode === 'edit' && props.editingSessionId === session.id) {
-    return 'border-[var(--theme-accent)] bg-[var(--theme-accentSoft)] text-[var(--theme-textPrimary)] shadow-md shadow-[color-mix(in_srgb,var(--theme-accent)_18%,transparent)]'
+    return 'theme-card-selected'
   }
 
   if (props.isSessionRunning(session.id)) {
-    return 'border-[var(--theme-warning)] bg-[var(--theme-appPanelMuted)] text-[var(--theme-textPrimary)] hover:bg-[var(--theme-appPanelHover)]'
+    return 'theme-card-warning'
   }
 
-  return 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] hover:border-[var(--theme-borderStrong)] hover:bg-[var(--theme-appPanel)]'
+  return 'theme-card-idle-strong'
 }
 
 function getSessionStateLabel(session) {
@@ -112,7 +112,7 @@ function getSessionStateClass(session) {
     >
       <span
         v-if="mode === 'edit' && editingSessionId === session.id"
-        class="absolute inset-y-3 left-0 w-1 rounded-full bg-[var(--theme-accent)]"
+        class="theme-selection-indicator absolute inset-y-3 left-0 w-1 rounded-full"
       />
       <div class="w-full text-left">
         <div class="theme-heading flex flex-wrap items-center gap-2 text-sm font-medium">

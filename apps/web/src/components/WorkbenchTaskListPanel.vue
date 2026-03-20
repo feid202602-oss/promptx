@@ -70,18 +70,18 @@ const emit = defineEmits([
 
 function getTaskCardClass(task) {
   if (task.slug === props.currentTaskSlug) {
-    return 'workbench-task-card--active border-[var(--theme-accent)] bg-[var(--theme-accentSoft)] text-[var(--theme-textPrimary)] shadow-md shadow-[color-mix(in_srgb,var(--theme-accent)_18%,transparent)]'
+    return 'workbench-task-card--active theme-card-selected'
   }
 
   if (task.sending) {
-    return 'workbench-task-card--running border-[var(--theme-warning)] bg-[var(--theme-appPanelMuted)] hover:bg-[var(--theme-appPanelHover)]'
+    return 'workbench-task-card--running theme-card-warning'
   }
 
-  return 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] hover:bg-[var(--theme-appPanelHover)]'
+  return 'theme-card-idle-muted'
 }
 
 function getTaskRunningBadgeClass() {
-  return 'border-[var(--theme-warning)] bg-[var(--theme-warningSoft)] text-[var(--theme-warningText)]'
+  return 'theme-status-warning'
 }
 
 function formatTaskUpdatedAt(task) {
@@ -109,8 +109,8 @@ function shouldShowWorkspaceBadge(task) {
 
 function getTaskWorkspaceBadgeClass(task) {
   return task.slug === props.currentTaskSlug
-    ? 'border-[var(--theme-borderStrong)] bg-[var(--theme-appPanelStrong)] text-[var(--theme-textSecondary)]'
-    : 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] text-[var(--theme-textMuted)]'
+    ? 'theme-badge-strong'
+    : 'theme-badge-muted'
 }
 </script>
 
@@ -159,7 +159,7 @@ function getTaskWorkspaceBadgeClass(task) {
         >
           <span
             v-if="task.slug === currentTaskSlug"
-            class="absolute inset-y-2 left-0 w-1 rounded-full bg-[var(--theme-accent)]"
+            class="theme-selection-indicator absolute inset-y-2 left-0 w-1 rounded-full"
           />
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0 h-5 flex-1 overflow-hidden">
@@ -240,7 +240,7 @@ function getTaskWorkspaceBadgeClass(task) {
         </button>
         <button
           type="button"
-          class="tool-button theme-danger-text theme-danger-hover inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-sm"
+          class="tool-button tool-button-danger-subtle inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-sm"
           :disabled="!currentTaskSlug || removingTask || creatingTask || isCurrentTaskSending"
           @click="emit('delete-task')"
         >

@@ -66,7 +66,7 @@ defineProps({
           <div
             class="inline-flex h-8 shrink-0 items-center gap-1 rounded-sm border px-1.5 py-1"
             :class="selectedPatchHunks.length
-              ? 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)]'
+              ? 'theme-inline-panel'
               : 'pointer-events-none invisible border-transparent'"
           >
             <button
@@ -105,7 +105,7 @@ defineProps({
         <div
           class="inline-flex h-8 w-[132px] shrink-0 items-center gap-1 rounded-sm border px-1.5 py-1"
           :class="selectedPatchHunks.length
-            ? 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)]'
+            ? 'theme-inline-panel'
             : 'pointer-events-none invisible border-transparent'"
         >
           <button

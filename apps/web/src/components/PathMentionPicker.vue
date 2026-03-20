@@ -90,7 +90,7 @@ defineExpose({
             type="button"
             class="inline-flex h-7 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
             :class="activeTab === 'search'
-              ? 'tool-button-primary'
+              ? 'tool-button-accent-subtle'
               : 'theme-filter-idle border-dashed'"
             @click="setActiveTab('search')"
           >
@@ -101,7 +101,7 @@ defineExpose({
             type="button"
             class="inline-flex h-7 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
             :class="activeTab === 'tree'
-              ? 'tool-button-primary'
+              ? 'tool-button-accent-subtle'
               : 'theme-filter-idle border-dashed'"
             @click="setActiveTab('tree')"
           >
@@ -183,8 +183,8 @@ defineExpose({
             type="button"
             class="flex w-full items-start gap-2 rounded-sm border border-transparent px-2.5 py-1.5 text-left transition"
             :class="activeKey === item.path
-              ? 'bg-[var(--theme-appPanelInset)]'
-              : 'hover:bg-[var(--theme-appPanelMuted)]'"
+              ? 'theme-list-item-active'
+              : 'theme-list-item-hover'"
             @mouseenter="activeKey = item.path"
             @click="emitSelect(item)"
           >
@@ -218,8 +218,8 @@ defineExpose({
             type="button"
             class="flex w-full items-start gap-2 rounded-sm border border-transparent px-2.5 py-1.5 text-left transition"
             :class="activeKey === item.path
-              ? 'bg-[var(--theme-appPanelInset)]'
-              : 'hover:bg-[var(--theme-appPanelMuted)]'"
+              ? 'theme-list-item-active'
+              : 'theme-list-item-hover'"
             @mouseenter="activeKey = item.path"
             @click="emitSelect(item)"
           >
@@ -249,10 +249,10 @@ defineExpose({
             :ref="(element) => setItemRef(item.path, element)"
             class="rounded-sm border border-transparent px-1.5 py-1 transition"
             :class="activeKey === item.path
-              ? 'bg-[var(--theme-appPanelInset)]'
+              ? 'theme-list-item-active'
               : item.type === 'directory' && item.expanded
-                ? 'bg-[var(--theme-appPanelMuted)]'
-                : 'hover:bg-[var(--theme-appPanelMuted)]'"
+                ? 'theme-list-item-expanded'
+                : 'theme-list-item-hover'"
             :style="{ paddingLeft: `${item.depth * 16 + 6}px` }"
             @mouseenter="activeKey = item.path"
           >

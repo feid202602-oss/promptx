@@ -544,7 +544,7 @@ const mobileDetailHeaderListeners = {
               <button
                 type="button"
                 class="tool-button px-3 py-2 text-sm"
-                :class="mobileDetailTab === 'activity' ? 'tool-button-primary' : ''"
+                :class="mobileDetailTab === 'activity' ? 'tool-button-accent-subtle' : ''"
                 @click="mobileDetailTab = 'activity'"
               >
                 执行
@@ -552,7 +552,7 @@ const mobileDetailHeaderListeners = {
               <button
                 type="button"
                 class="tool-button px-3 py-2 text-sm"
-                :class="mobileDetailTab === 'input' ? 'tool-button-primary' : ''"
+                :class="mobileDetailTab === 'input' ? 'tool-button-accent-subtle' : ''"
                 @click="mobileDetailTab = 'input'"
               >
                 输入

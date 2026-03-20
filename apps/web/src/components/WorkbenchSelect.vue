@@ -179,7 +179,7 @@ onBeforeUnmount(() => {
       class="workbench-select-trigger flex w-full items-center gap-3 rounded-sm border px-3 py-2 text-left transition focus:outline-none focus:ring-2"
       :class="disabled
         ? 'cursor-not-allowed border-[color-mix(in_srgb,var(--theme-borderDefault)_88%,var(--theme-textMuted))] bg-[color-mix(in_srgb,var(--theme-appPanelMuted)_82%,var(--theme-appBg))] text-[var(--theme-textMuted)]'
-        : 'border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] text-[var(--theme-textPrimary)] hover:border-[var(--theme-borderStrong)] focus:border-[var(--theme-borderStrong)] focus:ring-[var(--theme-focusRing)]'"
+        : 'theme-input-shell text-[var(--theme-textPrimary)] hover:border-[var(--theme-borderStrong)] focus:border-[var(--theme-borderStrong)] focus:ring-[var(--theme-focusRing)]'"
       :disabled="disabled"
       @click="toggleDropdown"
       @keydown.down.prevent="openDropdown"

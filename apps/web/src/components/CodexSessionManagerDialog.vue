@@ -95,6 +95,7 @@ const sortedSessions = computed(() => sortSessions(props.sessions))
 const activeSession = computed(() => props.sessions.find((session) => session.id === editingSessionId.value) || null)
 const hasSessions = computed(() => props.sessions.length > 0)
 const currentSession = computed(() => props.sessions.find((session) => session.id === props.selectedSessionId) || null)
+const activeSessionRunning = computed(() => Boolean(activeSession.value && isSessionRunning(activeSession.value.id)))
 const canEditCwd = computed(() => !activeSession.value?.started)
 const canEditEngine = computed(() => !activeSession.value?.started)
 const busy = computed(() => props.loading || creating.value || saving.value || deleting.value)
@@ -617,7 +618,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="!isMobileLayout" class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
-          <aside class="theme-divider border-b bg-[var(--theme-appPanelMuted)] px-3 py-3 sm:px-4 sm:py-4 lg:border-b-0 lg:border-r">
+          <aside class="theme-divider theme-muted-panel border-b px-3 py-3 sm:px-4 sm:py-4 lg:border-b-0 lg:border-r">
             <CodexSessionManagerList
               :busy="busy"
               :editing-session-id="editingSessionId"
@@ -677,8 +678,8 @@ onBeforeUnmount(() => {
                 <button
                   v-if="mode === 'edit' && activeSession"
                   type="button"
-                  class="tool-button theme-danger-text theme-danger-hover inline-flex items-center gap-2 px-3 py-2 text-xs"
-                  :disabled="busy || sending"
+                  class="tool-button tool-button-danger-subtle inline-flex items-center gap-2 px-3 py-2 text-xs"
+                  :disabled="busy || activeSessionRunning"
                   @click="showDeleteDialog = true"
                 >
                   <Trash2 class="h-4 w-4" />
@@ -766,7 +767,7 @@ onBeforeUnmount(() => {
                 <button
                   type="button"
                   class="tool-button px-3 py-2 text-sm"
-                  :class="mobileDetailTab === 'basic' ? 'tool-button-primary' : ''"
+                  :class="mobileDetailTab === 'basic' ? 'tool-button-accent-subtle' : ''"
                   @click="mobileDetailTab = 'basic'"
                 >
                   基本信息
@@ -774,7 +775,7 @@ onBeforeUnmount(() => {
                 <button
                   type="button"
                   class="tool-button px-3 py-2 text-sm"
-                  :class="mobileDetailTab === 'status' ? 'tool-button-primary' : ''"
+                  :class="mobileDetailTab === 'status' ? 'tool-button-accent-subtle' : ''"
                   :disabled="mode === 'create'"
                   @click="mobileDetailTab = 'status'"
                 >
@@ -821,8 +822,8 @@ onBeforeUnmount(() => {
                   <button
                     v-if="mode === 'edit' && activeSession"
                     type="button"
-                    class="tool-button theme-danger-text theme-danger-hover w-full px-3 py-2 text-sm"
-                    :disabled="busy || sending"
+                    class="tool-button tool-button-danger-subtle w-full px-3 py-2 text-sm"
+                    :disabled="busy || activeSessionRunning"
                     @click="showDeleteDialog = true"
                   >
                     {{ deleting ? '删除中...' : '删除项目' }}

@@ -26,8 +26,8 @@ function selectSection(sectionId = '') {
         type="button"
         class="settings-nav__item flex min-w-0 items-start gap-3 rounded-sm border px-3 py-3 text-left transition sm:w-full"
         :class="modelValue === section.id
-          ? 'border-[var(--theme-accent)] bg-[var(--theme-accentSoft)] text-[var(--theme-textPrimary)]'
-          : 'border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] hover:border-[var(--theme-borderStrong)] hover:bg-[var(--theme-appPanelStrong)]'"
+          ? 'theme-card-selected'
+          : 'theme-card-idle-muted border-dashed hover:border-[var(--theme-borderStrong)] hover:bg-[var(--theme-appPanelStrong)]'"
         @click="selectSection(section.id)"
       >
         <component :is="section.icon" class="mt-0.5 h-4 w-4 shrink-0" />

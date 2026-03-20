@@ -4,7 +4,7 @@ export const DEFAULT_THEME_ID = 'promptx-stone-light'
 export const THEME_PRESETS = [
   {
     id: 'promptx-stone-light',
-    name: 'PromptX Stone Light',
+    name: 'Stone Light',
     shortName: 'Stone Light',
     mode: 'light',
     description: '温和石色，适合长时间白天工作。',
@@ -69,11 +69,11 @@ export const THEME_PRESETS = [
   },
   {
     id: 'promptx-glass-light',
-    name: 'PromptX Glass Light',
+    name: 'Glass Light',
     shortName: 'Glass Light',
     mode: 'light',
     mobileEnabled: false,
-    description: '雾面玻璃质感，保留 PromptX 的石色与绿调。',
+    description: '雾面玻璃质感，保留石色与绿调。',
     swatches: ['#e5eeea', '#f7fbf9', '#bdd0c7', '#2f7b68'],
     colors: {
       appBg: '#e4ebe7',
@@ -144,7 +144,7 @@ export const THEME_PRESETS = [
   },
   {
     id: 'promptx-stone-dark',
-    name: 'PromptX Stone Dark',
+    name: 'Stone Dark',
     shortName: 'Stone Dark',
     mode: 'dark',
     description: '延续当前工作台气质的深色主题。',

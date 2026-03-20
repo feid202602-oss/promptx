@@ -266,7 +266,7 @@ onBeforeUnmount(() => {
                 <p class="theme-muted-text mt-1 text-xs leading-5">这里先放界面主题，后面如果有排版、字号等偏好，也继续归到这一类。</p>
               </div>
 
-              <section class="settings-section-card rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
+              <section class="settings-section-card px-4 py-4">
                 <ThemeToggle />
               </section>
             </section>
@@ -290,8 +290,8 @@ onBeforeUnmount(() => {
                 </span>
               </div>
 
-              <section class="settings-section-card space-y-4 rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
-                <label class="settings-form-card flex items-center justify-between gap-3 rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] px-3 py-2">
+              <section class="settings-section-card space-y-4 px-4 py-4">
+                <label class="settings-form-card flex items-center justify-between gap-3 px-3 py-2">
                   <div>
                     <div class="text-sm font-medium text-[var(--theme-textPrimary)]">启用远程访问</div>
                     <p class="theme-muted-text mt-1 text-xs">关闭后，本机会主动断开当前 Relay 连接。</p>
@@ -312,7 +312,7 @@ onBeforeUnmount(() => {
                       v-model="relayForm.relayUrl"
                       type="text"
                       placeholder="https://user1.promptx.example.com"
-                      class="w-full rounded-sm border border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] px-3 py-2 text-sm text-[var(--theme-textPrimary)] outline-none transition focus:border-[var(--theme-borderStrong)]"
+                      class="tool-input"
                       :disabled="relayManagedByEnv"
                     >
                   </label>
@@ -323,7 +323,7 @@ onBeforeUnmount(() => {
                       v-model="relayForm.deviceId"
                       type="text"
                       placeholder="my-macbook"
-                      class="w-full rounded-sm border border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] px-3 py-2 text-sm text-[var(--theme-textPrimary)] outline-none transition focus:border-[var(--theme-borderStrong)]"
+                      class="tool-input"
                       :disabled="relayManagedByEnv"
                     >
                   </label>
@@ -335,7 +335,7 @@ onBeforeUnmount(() => {
                         v-model="relayForm.deviceToken"
                         :type="relayTokenVisible ? 'text' : 'password'"
                         placeholder="请输入云端 Relay 的设备 token"
-                        class="w-full rounded-sm border border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] px-3 py-2 pr-10 text-sm text-[var(--theme-textPrimary)] outline-none transition focus:border-[var(--theme-borderStrong)]"
+                        class="tool-input pr-10"
                         :disabled="relayManagedByEnv"
                       >
                       <button
@@ -355,31 +355,31 @@ onBeforeUnmount(() => {
                   <div class="min-w-0 space-y-1">
                     <p
                       v-if="relayManagedByEnv"
-                      class="theme-status-warning text-xs leading-5"
+                      class="theme-status-warning theme-note-text"
                     >
                       当前 Relay 配置由环境变量接管，设置页仅展示实际值，修改环境变量后需重启服务。
                     </p>
-                    <p v-if="relayError" class="theme-danger-text text-xs leading-5">{{ relayError }}</p>
-                    <p v-else-if="relaySuccess" class="theme-status-success text-xs leading-5">{{ relaySuccess }}</p>
+                    <p v-if="relayError" class="theme-danger-text theme-note-text">{{ relayError }}</p>
+                    <p v-else-if="relaySuccess" class="theme-status-success theme-note-text">{{ relaySuccess }}</p>
                     <p
                       v-else-if="relayStatus?.lastError"
-                      class="theme-danger-text text-xs leading-5"
+                      class="theme-danger-text theme-note-text"
                     >
                       最近错误：{{ relayStatus.lastError }}
                     </p>
                     <p
                       v-else-if="relayStatus?.lastCloseReason"
-                      class="theme-muted-text text-xs leading-5"
+                      class="theme-muted-text theme-note-text"
                     >
                       最近断开：{{ relayStatus.lastCloseReason }}<span v-if="relayStatus.lastCloseCode">（code {{ relayStatus.lastCloseCode }}）</span>
                     </p>
                     <p
                       v-else-if="relayStatus?.lastConnectedAt"
-                      class="theme-muted-text text-xs leading-5"
+                      class="theme-muted-text theme-note-text"
                     >
                       最近连接：{{ new Date(relayStatus.lastConnectedAt).toLocaleString('zh-CN') }}
                     </p>
-                    <p v-else class="theme-muted-text text-xs leading-5">
+                    <p v-else class="theme-muted-text theme-note-text">
                       建议公网 Relay 使用 HTTPS，并确保云端与本机使用同一个设备 Token；多租户时每个人填写自己的子域名地址。
                     </p>
                   </div>
@@ -406,7 +406,7 @@ onBeforeUnmount(() => {
                 <p class="theme-muted-text mt-1 text-xs leading-5">这里先放版本信息，后面像更新日志、环境说明也可以继续往这里放。</p>
               </div>
 
-              <section class="settings-section-card rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
+              <section class="settings-section-card px-4 py-4">
                 <div class="flex items-center justify-between gap-3">
                   <div>
                     <div class="theme-heading text-sm font-medium">版本信息</div>
@@ -414,7 +414,7 @@ onBeforeUnmount(() => {
                       {{ versionError || '当前已安装的 PromptX 版本。' }}
                     </p>
                   </div>
-                  <span class="rounded-sm border border-dashed border-[var(--theme-borderStrong)] bg-[var(--theme-appPanelStrong)] px-2.5 py-1 text-xs font-medium text-[var(--theme-textSecondary)]">
+                  <span class="theme-badge-strong rounded-sm border border-dashed px-2.5 py-1 text-xs font-medium">
                     {{ versionLoading ? '读取中...' : version ? `v${version}` : '不可用' }}
                   </span>
                 </div>

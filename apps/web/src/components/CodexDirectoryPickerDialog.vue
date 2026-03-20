@@ -203,7 +203,7 @@ function renderHighlightedText(text = '', keyword = '') {
     return escapeHtml(source)
   }
 
-  return `${escapeHtml(source.slice(0, range.start))}<mark class="rounded bg-[var(--theme-warningSoft)] px-0.5 text-inherit">${escapeHtml(source.slice(range.start, range.end))}</mark>${escapeHtml(source.slice(range.end))}`
+  return `${escapeHtml(source.slice(0, range.start))}<mark class="theme-search-highlight">${escapeHtml(source.slice(range.start, range.end))}</mark>${escapeHtml(source.slice(range.end))}`
 }
 
 function getHighlightedName(item) {
@@ -566,13 +566,7 @@ onBeforeUnmount(() => {
           <label class="theme-muted-text mt-4 block text-xs">
             <span>搜索目录</span>
             <div
-              class="mt-1 flex h-10 items-center gap-2 rounded-sm border px-3 transition focus-within:ring-2"
-              :style="{
-                borderColor: 'var(--theme-inputBorder)',
-                background: 'var(--theme-inputBg)',
-                color: 'var(--theme-textPrimary)',
-                '--tw-ring-color': 'var(--theme-focusRing)',
-              }"
+              class="theme-input-shell mt-1 flex h-10 items-center gap-2 rounded-sm border px-3 transition focus-within:ring-2"
             >
               <Search class="h-4 w-4 shrink-0 text-[var(--theme-textMuted)]" />
               <input
@@ -588,7 +582,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="inline-flex h-8 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
-              :class="activeTab === 'search' ? 'tool-button-primary' : 'theme-filter-idle border-dashed'"
+              :class="activeTab === 'search' ? 'tool-button-accent-subtle' : 'theme-filter-idle border-dashed'"
               @click="activeTab = 'search'"
             >
               <Search class="h-3.5 w-3.5" />
@@ -597,7 +591,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="inline-flex h-8 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
-              :class="activeTab === 'tree' ? 'tool-button-primary' : 'theme-filter-idle border-dashed'"
+              :class="activeTab === 'tree' ? 'tool-button-accent-subtle' : 'theme-filter-idle border-dashed'"
               @click="activeTab = 'tree'"
             >
               <FolderOpen class="h-3.5 w-3.5" />
@@ -605,7 +599,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div class="mt-3 min-h-0 flex-1 overflow-y-auto rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] p-2">
+          <div class="theme-content-panel mt-3 min-h-0 flex-1 overflow-y-auto p-2">
             <div
               v-if="activeTab === 'search' && searchError"
               class="theme-status-danger rounded-sm border border-dashed px-3 py-3 text-xs"
@@ -664,8 +658,8 @@ onBeforeUnmount(() => {
                 type="button"
                 class="flex w-full items-start gap-2 rounded-sm border border-transparent px-2.5 py-1.5 text-left transition"
                 :class="normalizePathForCompare(selectedPath) === normalizePathForCompare(item.path)
-                  ? 'bg-[var(--theme-appPanelInset)]'
-                  : 'hover:bg-[var(--theme-appPanelMuted)]'"
+                  ? 'theme-list-item-active'
+                  : 'theme-list-item-hover'"
                 @click="handleSearchSelect(item)"
               >
                 <FolderOpen class="theme-muted-text mt-0.5 h-4 w-4 shrink-0" />
@@ -693,10 +687,10 @@ onBeforeUnmount(() => {
                 :key="item.path"
                 class="rounded-sm border border-transparent px-1.5 py-1 transition"
                 :class="normalizePathForCompare(selectedPath) === normalizePathForCompare(item.path)
-                  ? 'bg-[var(--theme-appPanelInset)]'
+                  ? 'theme-list-item-active'
                   : item.expanded
-                    ? 'bg-[var(--theme-appPanelMuted)]'
-                    : 'hover:bg-[var(--theme-appPanelMuted)]'"
+                    ? 'theme-list-item-expanded'
+                    : 'theme-list-item-hover'"
                 :style="{ paddingLeft: `${item.depth * 16 + 6}px` }"
               >
                 <div class="flex items-start gap-1.5">

@@ -82,7 +82,7 @@ const hasDiffFiles = computed(() => Array.isArray(props.diffPayload?.files) && p
     </button>
   </div>
 
-  <label class="mb-3 flex items-center gap-2 rounded-sm border border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] px-3 py-2 text-xs text-[var(--theme-textMuted)]">
+  <label class="theme-input-shell mb-3 flex items-center gap-2 rounded-sm border px-3 py-2 text-xs text-[var(--theme-textMuted)]">
     <Search class="h-3.5 w-3.5 shrink-0" />
     <input
       v-model="fileSearchModel"
@@ -94,7 +94,7 @@ const hasDiffFiles = computed(() => Array.isArray(props.diffPayload?.files) && p
 
   <div
     v-if="showSummarySkeleton"
-    class="theme-empty-state mb-3 bg-[var(--theme-appPanelStrong)] px-3 py-2 text-[11px]"
+    class="theme-empty-state theme-empty-state-strong mb-3 px-3 py-2 text-[11px]"
   >
     已先展示文件列表，整体增删行数正在后台统计...
   </div>

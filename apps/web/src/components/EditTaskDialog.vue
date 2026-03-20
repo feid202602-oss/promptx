@@ -387,7 +387,7 @@ onBeforeUnmount(() => {
                   <p class="theme-muted-text mt-1 text-xs leading-5">这里维护任务标题，留空时继续使用自动标题。</p>
                 </div>
 
-                <section class="rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
+                <section class="settings-section-card px-4 py-4">
                   <label class="block space-y-1.5">
                     <span class="theme-muted-text text-xs">任务标题</span>
                     <input
@@ -417,7 +417,7 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
 
-                <section class="rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
+                <section class="settings-section-card px-4 py-4">
                   <div class="grid gap-4 sm:grid-cols-2">
                     <label class="space-y-1.5 sm:col-span-2">
                       <span class="theme-muted-text text-xs">运行周期</span>
@@ -520,7 +520,7 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
 
-                <section class="rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
+                <section class="settings-section-card px-4 py-4">
                   <div class="grid gap-4 sm:grid-cols-2">
                     <label class="space-y-1.5">
                       <span class="theme-muted-text text-xs">渠道类型</span>
@@ -609,7 +609,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="theme-divider flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <p class="theme-muted-text text-xs leading-5">
+          <p class="theme-muted-text theme-note-text">
             定时运行会按 Cron 创建新的 run；运行通知会在本次 run 结束后按规则发送到群机器人。
           </p>
 

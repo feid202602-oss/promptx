@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useTheme } from '../composables/useTheme.js'
@@ -24,11 +24,11 @@ function handleThemeSelect(themeId) {
     <div>
       <div class="flex items-center justify-between gap-3">
         <div class="theme-heading text-sm font-medium">界面主题</div>
-        <div class="theme-toggle-current theme-muted-text rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] px-2 py-1 text-[11px]">
+        <div class="theme-toggle-current theme-badge-muted theme-muted-text rounded-sm border border-dashed px-2 py-1 text-[11px]">
           当前：{{ currentTheme.shortName }}
         </div>
       </div>
-      <div class="theme-muted-text mt-1 text-xs leading-5">像编辑器一样切换整套配色，而不只是深浅模式。</div>
+      <div class="theme-muted-text theme-note-text mt-1">像编辑器一样切换整套配色，而不只是深浅模式。</div>
     </div>
 
     <div class="space-y-4">
@@ -53,20 +53,10 @@ function handleThemeSelect(themeId) {
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center justify-between gap-2">
-                <span class="truncate text-sm font-medium">{{ theme.name }}</span>
+                <span class="truncate text-sm font-medium">{{ theme.shortName }}</span>
                 <Check v-if="theme.id === currentTheme.id" class="h-4 w-4 shrink-0" />
               </div>
-              <div class="theme-muted-text mt-1 text-[11px] leading-5">{{ theme.description }}</div>
-              <div class="theme-toggle-card__preview mt-2 flex items-center gap-2">
-                <span
-                  class="h-7 flex-1 rounded-[10px] border"
-                  :style="{ background: `linear-gradient(180deg, ${theme.swatches[1]} 0%, ${theme.swatches[0]} 100%)`, borderColor: theme.swatches[2] || theme.swatches[0] }"
-                />
-                <span
-                  class="h-7 w-10 rounded-[10px] border"
-                  :style="{ backgroundColor: theme.swatches[3] || theme.swatches[0], borderColor: theme.swatches[2] || theme.swatches[0] }"
-                />
-              </div>
+              <div class="theme-muted-text theme-note-text mt-1">{{ theme.description }}</div>
             </div>
           </div>
         </button>
@@ -74,3 +64,4 @@ function handleThemeSelect(themeId) {
     </div>
   </div>
 </template>
+

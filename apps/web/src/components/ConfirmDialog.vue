@@ -100,9 +100,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="tool-button px-4 py-2 text-sm"
-            :class="danger
-              ? 'border-[var(--theme-danger)] bg-[var(--theme-danger)] text-[var(--theme-textInverse)] hover:opacity-90'
-              : 'tool-button-primary'"
+            :class="danger ? 'tool-button-danger' : 'tool-button-primary'"
             :disabled="loading"
             @click="emit('confirm')"
           >

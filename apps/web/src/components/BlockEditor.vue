@@ -937,7 +937,7 @@ defineExpose({
           />
           <button
             type="button"
-            class="tool-button theme-danger-text absolute right-0 top-1 inline-flex items-center gap-1.5 px-2 py-1 text-xs opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+            class="tool-button tool-button-danger-subtle absolute right-0 top-1 inline-flex items-center gap-1.5 px-2 py-1 text-xs opacity-0 transition group-hover:opacity-100 focus:opacity-100"
             @click="removeBlock(index)"
           >
             <Trash2 class="h-3.5 w-3.5" />
@@ -961,7 +961,7 @@ defineExpose({
                 <FileText class="h-3.5 w-3.5" />
                 <span>转普通文本</span>
               </button>
-              <button type="button" class="tool-button theme-danger-text inline-flex items-center gap-1.5 px-2 py-1 text-xs" @click="removeBlock(index)">
+              <button type="button" class="tool-button tool-button-danger-subtle inline-flex items-center gap-1.5 px-2 py-1 text-xs" @click="removeBlock(index)">
                 <Trash2 class="h-3.5 w-3.5" />
                 <span>删除</span>
               </button>
@@ -994,13 +994,13 @@ defineExpose({
         <figure v-else class="group relative">
           <button
             type="button"
-            class="tool-button theme-danger-text absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 text-xs opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+            class="tool-button tool-button-danger-subtle absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 px-2 py-1 text-xs opacity-0 transition group-hover:opacity-100 focus:opacity-100"
             @click="removeBlock(index)"
           >
             <Trash2 class="h-3.5 w-3.5" />
             <span>删除</span>
           </button>
-          <div class="overflow-hidden rounded-sm border border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)]" @click="focusAfterImage(index)">
+          <div class="theme-inline-panel overflow-hidden rounded-sm border" @click="focusAfterImage(index)">
             <div class="theme-divider theme-muted-text flex items-center gap-2 border-b px-4 py-3 text-xs">
               <ImageIcon class="h-4 w-4" />
               <span>已插入图片</span>

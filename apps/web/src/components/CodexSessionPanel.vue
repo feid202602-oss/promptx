@@ -226,7 +226,7 @@ defineExpose({
       @select-session="handleSelectSession"
     />
 
-    <div class="workbench-panel-header theme-divider border-b bg-[var(--theme-appPanelMuted)] p-3">
+    <div class="workbench-panel-header theme-divider theme-muted-panel border-b p-3">
       <div class="flex flex-col gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <div class="min-w-0 shrink-0">
@@ -241,7 +241,7 @@ defineExpose({
             <button
               v-if="diffSupported"
               type="button"
-              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
+              class="tool-button tool-button-info-subtle inline-flex items-center gap-2 px-3 py-2 text-xs"
               :disabled="!taskSlug"
               @click="openTaskDiff"
             >
@@ -508,7 +508,7 @@ defineExpose({
       </div>
       <button
         type="button"
-        class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
+        class="tool-button tool-button-warning-subtle inline-flex items-center gap-2 px-3 py-2 text-xs"
         :disabled="stopping"
         @click="stopSending"
       >

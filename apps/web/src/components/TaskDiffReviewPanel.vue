@@ -133,7 +133,7 @@ watch(diffScope, () => {
           </button>
           <button
             type="button"
-            class="tool-button inline-flex shrink-0 items-center justify-center gap-2 px-3 py-2 text-xs"
+            class="tool-button tool-button-info-subtle inline-flex shrink-0 items-center justify-center gap-2 px-3 py-2 text-xs"
             :disabled="loading || statsLoading"
             @click="loadDiff"
           >
@@ -278,7 +278,7 @@ watch(diffScope, () => {
             <button
               type="button"
               class="tool-button px-3 py-2 text-sm"
-              :class="mobilePanelTab === 'files' ? 'tool-button-primary' : ''"
+              :class="mobilePanelTab === 'files' ? 'tool-button-accent-subtle' : ''"
               @click="mobilePanelTab = 'files'"
             >
               文件
@@ -286,7 +286,7 @@ watch(diffScope, () => {
             <button
               type="button"
               class="tool-button px-3 py-2 text-sm"
-              :class="mobilePanelTab === 'patch' ? 'tool-button-primary' : ''"
+              :class="mobilePanelTab === 'patch' ? 'tool-button-accent-subtle' : ''"
               :disabled="!selectedFile"
               @click="mobilePanelTab = 'patch'"
             >
@@ -295,7 +295,7 @@ watch(diffScope, () => {
           </div>
         </div>
 
-        <div v-show="mobilePanelTab === 'files'" class="theme-divider min-h-0 flex-1 overflow-y-auto bg-[var(--theme-appPanelMuted)] p-3">
+        <div v-show="mobilePanelTab === 'files'" class="theme-divider theme-muted-panel min-h-0 flex-1 overflow-y-auto p-3">
           <TaskDiffFileList
             :diff-payload="diffPayload"
             :file-search="fileSearch"
@@ -332,7 +332,7 @@ watch(diffScope, () => {
       </div>
 
       <div v-else class="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)] overflow-hidden">
-        <div class="theme-divider min-h-0 overflow-y-auto border-r bg-[var(--theme-appPanelMuted)] p-3">
+        <div class="theme-divider theme-muted-panel min-h-0 overflow-y-auto border-r p-3">
           <TaskDiffFileList
             :diff-payload="diffPayload"
             :file-search="fileSearch"
