@@ -168,6 +168,7 @@ function migrateToV1() {
       title TEXT NOT NULL DEFAULT '',
       auto_title TEXT NOT NULL DEFAULT '',
       last_prompt_preview TEXT NOT NULL DEFAULT '',
+      todo_items_json TEXT NOT NULL DEFAULT '[]',
       codex_session_id TEXT NOT NULL DEFAULT '',
       automation_enabled INTEGER NOT NULL DEFAULT 0,
       automation_cron TEXT NOT NULL DEFAULT '',
@@ -322,6 +323,7 @@ function applyAdditiveSchemaPatches() {
   const alterStatements = [
     `ALTER TABLE tasks ADD COLUMN auto_title TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE tasks ADD COLUMN last_prompt_preview TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE tasks ADD COLUMN todo_items_json TEXT NOT NULL DEFAULT '[]'`,
     `ALTER TABLE tasks ADD COLUMN codex_session_id TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE tasks ADD COLUMN automation_enabled INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE tasks ADD COLUMN automation_cron TEXT NOT NULL DEFAULT ''`,

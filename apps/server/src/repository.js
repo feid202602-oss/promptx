@@ -73,6 +73,7 @@ function toTask(row, blocks = [], options = {}) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     blocks,
+    todoItems: parseTaskTodoItems(row.todo_items_json),
   }
 }
 
@@ -279,6 +280,7 @@ function mapTaskSummary(row, firstText = '', blockCount = 0, codexRunCount = 0) 
     expiresAt: row.expires_at,
     preview: summarizeTask({ blocks: textBlock }),
     codexRunCount: Math.max(0, Number(codexRunCount) || 0),
+    todoCount: parseTaskTodoItems(row.todo_items_json).length,
     blockCount,
     automation: mapTaskAutomationSummary(row),
     notification: mapTaskNotificationSummary(row),
@@ -313,9 +315,49 @@ function normalizeBlockInput(block = {}) {
   }
 }
 
+function normalizeTaskTodoBlockInput(block = {}) {
+  const normalized = normalizeBlockInput(block)
+  return {
+    type: normalized.type,
+    content: normalized.content,
+    meta: normalized.meta,
+  }
+}
+
+function normalizeTaskTodoItemInput(item = {}, index = 0) {
+  const blocks = Array.isArray(item?.blocks)
+    ? item.blocks.map(normalizeTaskTodoBlockInput).filter((block) => String(block.content || '').trim() || block.type === BLOCK_TYPES.IMAGE)
+    : []
+
+  return {
+    id: clampText(item?.id || `todo-${Date.now()}-${index}`, 80).trim() || `todo-${Date.now()}-${index}`,
+    createdAt: clampText(item?.createdAt || new Date().toISOString(), 40).trim() || new Date().toISOString(),
+    blocks,
+  }
+}
+
+function normalizeTaskTodoItemsInput(items = []) {
+  if (!Array.isArray(items)) {
+    return []
+  }
+
+  return items
+    .map((item, index) => normalizeTaskTodoItemInput(item, index))
+    .filter((item) => item.blocks.length)
+    .slice(0, 100)
+}
+
+function parseTaskTodoItems(rawValue = '[]') {
+  try {
+    return normalizeTaskTodoItemsInput(JSON.parse(String(rawValue || '[]')))
+  } catch {
+    return []
+  }
+}
+
 export function listTasks(limit = 30) {
   const rows = all(
-    `SELECT id, slug, title, auto_title, last_prompt_preview, codex_session_id,
+    `SELECT id, slug, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
             notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at, created_at, updated_at
@@ -344,7 +386,7 @@ export function listTasks(limit = 30) {
 
 export function getTaskBySlug(slug) {
   const row = get(
-    `SELECT id, slug, title, auto_title, last_prompt_preview, codex_session_id,
+    `SELECT id, slug, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
             notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at, created_at, updated_at
@@ -368,6 +410,7 @@ export function createTask(input = {}) {
   const title = clampText(input.title || '', 140)
   const autoTitle = clampText(input.autoTitle || '', 140)
   const lastPromptPreview = clampText(input.lastPromptPreview || '', 280)
+  const todoItemsJson = JSON.stringify(normalizeTaskTodoItemsInput(input.todoItems))
   const codexSessionId = clampText(input.codexSessionId || '', 120)
   const automation = normalizeAutomationInput(input.automation)
   const notification = normalizeNotificationInput(input.notification)
@@ -379,18 +422,19 @@ export function createTask(input = {}) {
   transaction(() => {
     run(
       `INSERT INTO tasks (
-        slug, edit_token, title, auto_title, last_prompt_preview, codex_session_id,
+        slug, edit_token, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
         automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
         notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
         visibility, expires_at, created_at, updated_at
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         slug,
         editToken,
         title,
         autoTitle,
         lastPromptPreview,
+        todoItemsJson,
         codexSessionId,
         automation.enabled ? 1 : 0,
         automation.cron,
@@ -423,7 +467,7 @@ export function createTask(input = {}) {
 
 export function updateTask(slug, input = {}) {
   const existing = get(
-    `SELECT id, edit_token, title, auto_title, last_prompt_preview, codex_session_id,
+    `SELECT id, edit_token, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
             notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at
@@ -444,6 +488,9 @@ export function updateTask(slug, input = {}) {
   const lastPromptPreview = Object.prototype.hasOwnProperty.call(input, 'lastPromptPreview')
     ? clampText(input.lastPromptPreview || '', 280)
     : String(existing.last_prompt_preview || '')
+  const todoItemsJson = Object.prototype.hasOwnProperty.call(input, 'todoItems')
+    ? JSON.stringify(normalizeTaskTodoItemsInput(input.todoItems))
+    : String(existing.todo_items_json || '[]')
   const codexSessionId = Object.prototype.hasOwnProperty.call(input, 'codexSessionId')
     ? clampText(input.codexSessionId || '', 120)
     : String(existing.codex_session_id || '')
@@ -502,7 +549,7 @@ export function updateTask(slug, input = {}) {
   transaction(() => {
     run(
       `UPDATE tasks
-       SET title = ?, auto_title = ?, last_prompt_preview = ?, codex_session_id = ?,
+       SET title = ?, auto_title = ?, last_prompt_preview = ?, todo_items_json = ?, codex_session_id = ?,
            automation_enabled = ?, automation_cron = ?, automation_timezone = ?, automation_concurrency_policy = ?, automation_last_triggered_at = ?, automation_next_trigger_at = ?,
            notification_enabled = ?, notification_channel_type = ?, notification_webhook_url = ?, notification_secret = ?, notification_trigger_on = ?, notification_message_mode = ?, notification_last_status = ?, notification_last_error = ?, notification_last_sent_at = ?,
            visibility = ?, expires_at = ?, updated_at = ?
@@ -511,6 +558,7 @@ export function updateTask(slug, input = {}) {
         title,
         autoTitle,
         lastPromptPreview,
+        todoItemsJson,
         codexSessionId,
         automation.enabled ? 1 : 0,
         automation.cron,

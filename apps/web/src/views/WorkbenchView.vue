@@ -6,6 +6,7 @@ import WorkbenchActivityPanel from '../components/WorkbenchActivityPanel.vue'
 import WorkbenchInputPanel from '../components/WorkbenchInputPanel.vue'
 import WorkbenchMobileDetailHeader from '../components/WorkbenchMobileDetailHeader.vue'
 import WorkbenchTaskListPanel from '../components/WorkbenchTaskListPanel.vue'
+import WorkbenchTodoDialog from '../components/WorkbenchTodoDialog.vue'
 import TopToast from '../components/TopToast.vue'
 import { useWorkbenchMobileLayout } from '../composables/useWorkbenchMobileLayout.js'
 import { usePageTitle } from '../composables/usePageTitle.js'
@@ -17,6 +18,11 @@ const showDeleteDialog = ref(false)
 const showDiffDialog = ref(false)
 const showSettingsDialog = ref(false)
 const showEditTaskDialog = ref(false)
+const showTodoDialog = ref(false)
+const showTodoDeleteConfirm = ref(false)
+const showTodoUseConfirm = ref(false)
+const pendingTodoDeleteId = ref('')
+const pendingTodoUseId = ref('')
 const editingTaskTitleSlug = ref('')
 const diffFocusToken = ref(0)
 const preferredDiffScope = ref('workspace')
@@ -42,6 +48,7 @@ function scrollCurrentPanelToBottom() {
 }
 
 const {
+  addCurrentDraftToTodo,
   applyTaskSettingsUpdate,
   buildPromptForTask,
   getPromptBlocksForTask,
@@ -60,6 +67,7 @@ const {
   handleTaskSendingChange,
   handleTaskSessionChange,
   handleUpload,
+  hasCurrentDraftContent,
   hasUnsavedChanges,
   initializeWorkbench,
   isCurrentTaskSending,
@@ -67,6 +75,8 @@ const {
   loadingTasks,
   pageTitle,
   prepareCodexPromptForTask,
+  currentTodoItems,
+  removeTodoItem,
   removeCurrentTask,
   removingTask,
   renderedTasks,
@@ -74,6 +84,7 @@ const {
   saving,
   selectTask,
   updateLastPromptPreview,
+  useTodoItem,
   uploading,
 } = useWorkbenchTasks({
   clearToast,
@@ -125,9 +136,11 @@ const activityPanelProps = computed(() => ({
   taskSlug: currentRenderedTask.value?.slug || '',
 }))
 const inputPanelProps = computed(() => ({
+  canAddTodo: hasCurrentDraftContent.value,
   codexSessionId: currentSelectedSessionId.value,
   isCurrentTaskSending: isCurrentTaskSending.value,
   loading: loadingTask.value,
+  todoCount: currentTodoItems.value.length,
   uploading: uploading.value,
 }))
 const mobileDetailHeaderProps = computed(() => ({
@@ -186,6 +199,26 @@ function openEditTaskDialog() {
 
 function closeEditTaskDialog() {
   showEditTaskDialog.value = false
+}
+
+function openTodoDialog() {
+  showTodoDialog.value = true
+}
+
+function closeTodoDialog() {
+  showTodoDialog.value = false
+  closeTodoDeleteConfirm()
+  closeTodoUseConfirm()
+}
+
+function closeTodoDeleteConfirm() {
+  showTodoDeleteConfirm.value = false
+  pendingTodoDeleteId.value = ''
+}
+
+function closeTodoUseConfirm() {
+  showTodoUseConfirm.value = false
+  pendingTodoUseId.value = ''
 }
 
 function handleTaskSettingsSaved(task) {
@@ -322,6 +355,57 @@ async function handleTaskSelect(taskSlug) {
   }
 }
 
+async function handleAddTodo() {
+  await flushCurrentEditorInput()
+  addCurrentDraftToTodo()
+}
+
+function handleDeleteTodo(todoId) {
+  pendingTodoDeleteId.value = String(todoId || '').trim()
+  showTodoDeleteConfirm.value = Boolean(pendingTodoDeleteId.value)
+}
+
+function confirmDeleteTodo() {
+  if (!pendingTodoDeleteId.value) {
+    return
+  }
+
+  removeTodoItem(pendingTodoDeleteId.value)
+  closeTodoDeleteConfirm()
+}
+
+async function applyTodoToEditor(todoId = pendingTodoUseId.value) {
+  const normalizedTodoId = String(todoId || '').trim()
+  if (!normalizedTodoId) {
+    return false
+  }
+
+  const appliedTodo = useTodoItem(normalizedTodoId)
+  if (!appliedTodo) {
+    return false
+  }
+
+  closeTodoUseConfirm()
+  closeTodoDialog()
+  return true
+}
+
+async function handleUseTodo(todoId) {
+  await flushCurrentEditorInput()
+  const normalizedTodoId = String(todoId || '').trim()
+  if (!normalizedTodoId) {
+    return
+  }
+
+  if (!hasCurrentDraftContent.value) {
+    await applyTodoToEditor(normalizedTodoId)
+    return
+  }
+
+  pendingTodoUseId.value = normalizedTodoId
+  showTodoUseConfirm.value = true
+}
+
 async function sendToCodex() {
   const taskSlug = currentTaskSlug.value
   if (!taskSlug) {
@@ -430,10 +514,12 @@ const activityPanelListeners = {
 }
 
 const inputPanelListeners = {
+  'add-todo': handleAddTodo,
   'clear-request': openClearDialog,
   'copy-request': copyCodexPrompt,
   'import-pdf-files': handleImportPdfFiles,
   'import-text-files': handleImportTextFiles,
+  'manage-todo': openTodoDialog,
   'send-request': sendToCodex,
   'upload-files': handleUpload,
 }
@@ -472,6 +558,32 @@ const mobileDetailHeaderListeners = {
       danger
       @cancel="closeDeleteDialog"
       @confirm="confirmRemoveCurrentTask"
+    />
+    <ConfirmDialog
+      :open="showTodoDeleteConfirm"
+      title="确认删除这条代办？"
+      description="删除后这条代办将无法恢复。"
+      confirm-text="确认删除"
+      cancel-text="先保留"
+      danger
+      @cancel="closeTodoDeleteConfirm"
+      @confirm="confirmDeleteTodo"
+    />
+    <ConfirmDialog
+      :open="showTodoUseConfirm"
+      title="替换编辑区内容？"
+      description="编辑区已有内容。继续使用这条代办会清空当前内容，并替换成代办里的内容。"
+      confirm-text="确认替换"
+      cancel-text="先不替换"
+      @cancel="closeTodoUseConfirm"
+      @confirm="applyTodoToEditor()"
+    />
+    <WorkbenchTodoDialog
+      :open="showTodoDialog"
+      :items="currentTodoItems"
+      @close="closeTodoDialog"
+      @delete="handleDeleteTodo"
+      @use="handleUseTodo"
     />
     <TaskDiffReviewDialog
       v-if="showDiffDialog"

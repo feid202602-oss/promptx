@@ -4,35 +4,45 @@ import BlockEditor from './BlockEditor.vue'
 import WorkbenchEditorActions from './WorkbenchEditorActions.vue'
 
 const props = defineProps({
-  modelValue: {
-    type: Array,
-    default: () => [],
+  canAddTodo: {
+    type: Boolean,
+    default: false,
   },
   codexSessionId: {
     type: String,
     default: '',
   },
-  uploading: {
+  isCurrentTaskSending: {
     type: Boolean,
     default: false,
+  },
+  modelValue: {
+    type: Array,
+    default: () => [],
   },
   loading: {
     type: Boolean,
     default: false,
   },
-  isCurrentTaskSending: {
+  todoCount: {
+    type: Number,
+    default: 0,
+  },
+  uploading: {
     type: Boolean,
     default: false,
   },
 })
 
 const emit = defineEmits([
+  'add-todo',
   'update:modelValue',
   'upload-files',
   'import-text-files',
   'import-pdf-files',
   'clear-request',
   'copy-request',
+  'manage-todo',
   'send-request',
 ])
 
@@ -107,10 +117,14 @@ defineExpose({
   >
     <template #header-actions>
       <WorkbenchEditorActions
+        :can-add-todo="canAddTodo"
         :is-current-task-sending="isCurrentTaskSending"
+        :todo-count="todoCount"
+        @add-todo="emit('add-todo')"
         @open-file-picker="openFilePicker"
         @clear-request="emit('clear-request')"
         @copy-request="emit('copy-request')"
+        @manage-todo="emit('manage-todo')"
         @send-request="emit('send-request')"
       />
     </template>

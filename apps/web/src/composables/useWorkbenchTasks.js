@@ -1,5 +1,5 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { deriveTitleFromBlocks } from '@promptx/shared'
+import { BLOCK_TYPES, deriveTitleFromBlocks } from '@promptx/shared'
 import {
   createTask,
   deleteTask,
@@ -39,6 +39,14 @@ function cloneBlocks(blocks = []) {
   }))
 }
 
+function cloneTodoItems(items = []) {
+  return (items || []).map((item) => ({
+    id: String(item?.id || '').trim(),
+    createdAt: String(item?.createdAt || ''),
+    blocks: cloneBlocks(item?.blocks || []),
+  }))
+}
+
 function cloneDraftState(state = {}) {
   return {
     title: String(state.title || ''),
@@ -46,7 +54,31 @@ function cloneDraftState(state = {}) {
     lastPromptPreview: String(state.lastPromptPreview || ''),
     codexSessionId: String(state.codexSessionId || ''),
     blocks: cloneBlocks(state.blocks || []),
+    todoItems: cloneTodoItems(state.todoItems || []),
   }
+}
+
+function normalizeTodoItemBlocks(blocks = []) {
+  return cloneBlocks(blocks).filter((block) => {
+    if (block?.type === BLOCK_TYPES.IMAGE) {
+      return Boolean(String(block.content || '').trim())
+    }
+
+    return Boolean(String(block?.content || '').trim())
+  })
+}
+
+function hasMeaningfulBlocks(blocks = []) {
+  return normalizeTodoItemBlocks(blocks).length > 0
+}
+
+function createTodoItemId() {
+  const randomUuid = globalThis.crypto?.randomUUID?.()
+  if (randomUuid) {
+    return `todo-${randomUuid}`
+  }
+
+  return `todo-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function deriveAutoTaskTitle(blocks = [], max = 16) {
@@ -106,7 +138,7 @@ export function mergeTaskSummariesWithWorkspaceDiff(prevItems = [], nextItems = 
       .filter(Boolean)
   )
 
-  return (nextItems || []).map((item) => {
+  const normalizedNextItems = (nextItems || []).map((item) => {
     const slug = String(item?.slug || '').trim()
     const nextSessionId = String(item?.codexSessionId || '').trim()
 
@@ -142,14 +174,32 @@ export function mergeTaskSummariesWithWorkspaceDiff(prevItems = [], nextItems = 
       workspaceDiffSummary: null,
     }
   })
-}
 
-function sortTaskSummaries(items = []) {
-  return [...items].sort((left, right) => {
-    const rightTime = Date.parse(String(right?.updatedAt || '')) || 0
-    const leftTime = Date.parse(String(left?.updatedAt || '')) || 0
-    return rightTime - leftTime
+  const nextBySlug = new Map(
+    normalizedNextItems
+      .map((item) => {
+        const slug = String(item?.slug || '').trim()
+        return slug ? [slug, item] : null
+      })
+      .filter(Boolean)
+  )
+
+  const orderedExistingItems = (prevItems || [])
+    .map((item) => {
+      const slug = String(item?.slug || '').trim()
+      return slug ? nextBySlug.get(slug) || null : null
+    })
+    .filter(Boolean)
+
+  const newItems = normalizedNextItems.filter((item) => {
+    const slug = String(item?.slug || '').trim()
+    return slug && !previousBySlug.has(slug)
   })
+
+  return [
+    ...newItems,
+    ...orderedExistingItems,
+  ]
 }
 
 function persistActiveTaskSlug(slug) {
@@ -213,6 +263,7 @@ function toTaskSummary(taskRecord) {
     lastPromptPreview: String(taskRecord.lastPromptPreview || ''),
     codexSessionId: String(taskRecord.codexSessionId || ''),
     codexRunCount: Math.max(0, Number(taskRecord.codexRunCount) || 0),
+    todoCount: Math.max(0, Number(taskRecord.todoCount) || 0),
     running: Boolean(taskRecord.running),
     preview: String(taskRecord.lastPromptPreview || ''),
     updatedAt: taskRecord.updatedAt || taskRecord.createdAt || new Date().toISOString(),
@@ -263,6 +314,7 @@ export function useWorkbenchTasks(options = {}) {
     lastPromptPreview: '',
     codexSessionId: '',
     blocks: [],
+    todoItems: [],
   })
   const loadingTasks = ref(true)
   const loadingTask = ref(false)
@@ -290,6 +342,8 @@ export function useWorkbenchTasks(options = {}) {
   const currentSelectedSessionId = computed(() => selectedSessionMap.value[currentTaskSlug.value] || '')
   const isCurrentTaskSending = computed(() => Boolean(sendingTaskMap.value[currentTaskSlug.value]))
   const hasAnyTaskSending = computed(() => Object.values(sendingTaskMap.value).some(Boolean))
+  const hasCurrentDraftContent = computed(() => hasMeaningfulBlocks(draft.value.blocks))
+  const currentTodoItems = computed(() => cloneTodoItems(draft.value.todoItems))
   const pageTitle = computed(() => currentTaskDisplayTitle.value || '未命名任务')
   const renderedTasks = computed(() => tasks.value.map((task) => buildRenderedTask(task)))
 
@@ -312,6 +366,7 @@ export function useWorkbenchTasks(options = {}) {
     title = draft.value.title,
     autoTitle = draft.value.autoTitle,
     lastPromptPreview = draft.value.lastPromptPreview,
+    todoItems = draft.value.todoItems,
     codexSessionId = draft.value.codexSessionId,
     blocks = draft.value.blocks
   ) {
@@ -319,6 +374,7 @@ export function useWorkbenchTasks(options = {}) {
       title: String(title || ''),
       autoTitle: String(autoTitle || ''),
       lastPromptPreview: String(lastPromptPreview || ''),
+      todoItems: cloneTodoItems(todoItems),
       codexSessionId: String(codexSessionId || ''),
       blocks: normalizeBlocksForSave(blocks),
     })
@@ -351,6 +407,9 @@ export function useWorkbenchTasks(options = {}) {
     const autoTitle = task.slug === currentTaskSlug.value
       ? draft.value.autoTitle
       : cachedDraft?.autoTitle ?? task.autoTitle
+    const todoCount = task.slug === currentTaskSlug.value
+      ? cloneTodoItems(draft.value.todoItems).length
+      : cloneTodoItems(cachedDraft?.todoItems || []).length || Number(task.todoCount || 0)
     const preview = task.slug === currentTaskSlug.value
       ? draft.value.lastPromptPreview || task.lastPromptPreview || ''
       : cachedDraft?.lastPromptPreview || task.lastPromptPreview || ''
@@ -362,6 +421,7 @@ export function useWorkbenchTasks(options = {}) {
       ...task,
       title,
       autoTitle,
+      todoCount,
       preview,
       codexSessionId,
       sessionSelectionLocked: Boolean(codexSessionId && Number(task.codexRunCount || 0) > 0),
@@ -553,6 +613,7 @@ export function useWorkbenchTasks(options = {}) {
       title: String(draft.value.title || ''),
       autoTitle: String(draft.value.autoTitle || ''),
       lastPromptPreview: String(draft.value.lastPromptPreview || ''),
+      todoCount: cloneTodoItems(draft.value.todoItems).length,
       codexSessionId: String(selectedSessionMap.value[currentTaskSlug.value] || draft.value.codexSessionId || ''),
       preview: String(draft.value.lastPromptPreview || ''),
     })
@@ -653,8 +714,9 @@ export function useWorkbenchTasks(options = {}) {
 
     try {
       const payload = await listTasks()
-      const nextTasks = sortTaskSummaries(
-        mergeTaskSummariesWithWorkspaceDiff(tasks.value, (payload.items || []).map(toTaskSummary))
+      const nextTasks = mergeTaskSummariesWithWorkspaceDiff(
+        tasks.value,
+        (payload.items || []).map(toTaskSummary)
       )
       tasks.value = nextTasks
       syncSendingTaskMapWithTasks(nextTasks)
@@ -685,8 +747,8 @@ export function useWorkbenchTasks(options = {}) {
 
       currentTaskSlug.value = ''
       persistActiveTaskSlug('')
-      draft.value = { title: '', autoTitle: '', lastPromptPreview: '', codexSessionId: '', blocks: [] }
-      lastSavedSnapshot.value = createSnapshot('', '', '', '', [])
+      draft.value = { title: '', autoTitle: '', lastPromptPreview: '', codexSessionId: '', blocks: [], todoItems: [] }
+      lastSavedSnapshot.value = createSnapshot('', '', '', [], '', [])
       hasUnsavedChanges.value = false
       return
     }
@@ -737,6 +799,7 @@ export function useWorkbenchTasks(options = {}) {
       lastPromptPreview: String(task.lastPromptPreview || ''),
       codexSessionId: String(task.codexSessionId || ''),
       blocks: normalizedBlocks,
+      todoItems: cloneTodoItems(task.todoItems || []),
     }
 
     return {
@@ -793,6 +856,7 @@ export function useWorkbenchTasks(options = {}) {
         draft.value.title,
         draft.value.autoTitle,
         draft.value.lastPromptPreview,
+        draft.value.todoItems,
         draft.value.codexSessionId,
         draft.value.blocks
       )
@@ -840,6 +904,7 @@ export function useWorkbenchTasks(options = {}) {
           title: String(draft.value.title || ''),
           autoTitle: String(draft.value.autoTitle || ''),
           lastPromptPreview: String(draft.value.lastPromptPreview || ''),
+          todoItems: cloneTodoItems(draft.value.todoItems),
           codexSessionId: String(selectedSessionMap.value[currentTaskSlug.value] || draft.value.codexSessionId || ''),
           expiry: 'none',
           visibility: 'private',
@@ -850,6 +915,7 @@ export function useWorkbenchTasks(options = {}) {
           title: String(task.title || ''),
           autoTitle: String(task.autoTitle || ''),
           lastPromptPreview: String(task.lastPromptPreview || ''),
+          todoItems: cloneTodoItems(task.todoItems || draft.value.todoItems || []),
           codexSessionId: String(selectedSessionMap.value[currentTaskSlug.value] || task.codexSessionId || ''),
           blocks: cloneBlocks(draft.value.blocks),
         }
@@ -858,6 +924,7 @@ export function useWorkbenchTasks(options = {}) {
           normalizedState.title,
           normalizedState.autoTitle,
           normalizedState.lastPromptPreview,
+          normalizedState.todoItems,
           normalizedState.codexSessionId,
           normalizedState.blocks
         )
@@ -921,6 +988,7 @@ export function useWorkbenchTasks(options = {}) {
         lastPromptPreview: String(task.lastPromptPreview || ''),
         codexSessionId: String(task.codexSessionId || ''),
         blocks: cloneBlocks(task.blocks || []),
+        todoItems: cloneTodoItems(task.todoItems || []),
       }
       setTaskDraftState(task.slug, initialState)
       upsertTaskSummary(toTaskSummary(task), { insertAtStart: true })
@@ -979,8 +1047,8 @@ export function useWorkbenchTasks(options = {}) {
       } else {
         currentTaskSlug.value = ''
         persistActiveTaskSlug('')
-        draft.value = { title: '', autoTitle: '', lastPromptPreview: '', codexSessionId: '', blocks: [] }
-        lastSavedSnapshot.value = createSnapshot('', '', '', '', [])
+        draft.value = { title: '', autoTitle: '', lastPromptPreview: '', codexSessionId: '', blocks: [], todoItems: [] }
+        lastSavedSnapshot.value = createSnapshot('', '', '', [], '', [])
         hasUnsavedChanges.value = false
         await createTaskAndSelect()
       }
@@ -1010,6 +1078,84 @@ export function useWorkbenchTasks(options = {}) {
     if (!silent) {
       flashToast('已清空当前任务内容，稍后会自动保存')
     }
+  }
+
+  function addCurrentDraftToTodo() {
+    if (!currentTaskSlug.value) {
+      return false
+    }
+
+    const todoBlocks = normalizeTodoItemBlocks(draft.value.blocks)
+    if (!todoBlocks.length) {
+      return false
+    }
+
+    draft.value = {
+      ...draft.value,
+      blocks: [{ type: 'text', content: '', meta: {} }],
+      todoItems: [
+        {
+          id: createTodoItemId(),
+          createdAt: new Date().toISOString(),
+          blocks: todoBlocks,
+        },
+        ...cloneTodoItems(draft.value.todoItems),
+      ],
+    }
+    setTaskDraftState(currentTaskSlug.value, draft.value)
+    syncDraftSummary()
+    hasUnsavedChanges.value = true
+    nextTick(() => {
+      editorRef.value?.focusEditor?.()
+    })
+    flashToast('已加入代办')
+    return true
+  }
+
+  function removeTodoItem(todoId = '') {
+    const normalizedTodoId = String(todoId || '').trim()
+    if (!currentTaskSlug.value || !normalizedTodoId) {
+      return false
+    }
+
+    const nextTodoItems = cloneTodoItems(draft.value.todoItems).filter((item) => item.id !== normalizedTodoId)
+    if (nextTodoItems.length === cloneTodoItems(draft.value.todoItems).length) {
+      return false
+    }
+
+    draft.value = {
+      ...draft.value,
+      todoItems: nextTodoItems,
+    }
+    setTaskDraftState(currentTaskSlug.value, draft.value)
+    syncDraftSummary()
+    hasUnsavedChanges.value = true
+    return true
+  }
+
+  function useTodoItem(todoId = '') {
+    const normalizedTodoId = String(todoId || '').trim()
+    if (!currentTaskSlug.value || !normalizedTodoId) {
+      return null
+    }
+
+    const targetTodo = cloneTodoItems(draft.value.todoItems).find((item) => item.id === normalizedTodoId)
+    if (!targetTodo) {
+      return null
+    }
+
+    draft.value = {
+      ...draft.value,
+      blocks: cloneBlocks(targetTodo.blocks),
+      todoItems: cloneTodoItems(draft.value.todoItems).filter((item) => item.id !== normalizedTodoId),
+    }
+    setTaskDraftState(currentTaskSlug.value, draft.value)
+    syncDraftSummary()
+    hasUnsavedChanges.value = true
+    nextTick(() => {
+      editorRef.value?.focusEditor?.()
+    })
+    return targetTodo
   }
 
   async function initializeWorkbench() {
@@ -1248,6 +1394,7 @@ export function useWorkbenchTasks(options = {}) {
   )
 
   return {
+    addCurrentDraftToTodo,
     applyTaskSettingsUpdate,
     buildPromptForTask,
     getPromptBlocksForTask,
@@ -1266,6 +1413,7 @@ export function useWorkbenchTasks(options = {}) {
     handleTaskSendingChange,
     handleTaskSessionChange,
     handleUpload,
+    hasCurrentDraftContent,
     hasAnyTaskSending,
     hasUnsavedChanges,
     initializeWorkbench,
@@ -1274,6 +1422,8 @@ export function useWorkbenchTasks(options = {}) {
     loadingTasks,
     pageTitle,
     prepareCodexPromptForTask,
+    currentTodoItems,
+    removeTodoItem,
     removeCurrentTask,
     removingTask,
     renderedTasks,
@@ -1285,6 +1435,7 @@ export function useWorkbenchTasks(options = {}) {
     sendingTaskMap,
     taskDraftMap,
     tasks,
+    useTodoItem,
     updateLastPromptPreview,
     uploading,
     creatingTask,

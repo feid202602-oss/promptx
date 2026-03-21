@@ -66,7 +66,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
-      class="theme-modal-backdrop fixed inset-0 z-[70] flex items-center justify-center px-4"
+      class="theme-modal-backdrop fixed inset-0 z-[90] flex items-center justify-center px-4"
       @click.self="!loading && emit('cancel')"
     >
       <section class="panel w-full max-w-md overflow-hidden">
