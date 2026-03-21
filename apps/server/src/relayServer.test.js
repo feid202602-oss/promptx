@@ -363,3 +363,94 @@ test('multi-tenant relay routes requests to matching device sockets without cros
     await relay.close()
   }
 })
+
+test('relay server closes stale device connection after heartbeat timeout', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-relay-heartbeat-'))
+  fs.writeFileSync(path.join(tempDir, 'index.html'), '<!doctype html><html><body>relay-heartbeat</body></html>\n', 'utf8')
+
+  const relay = await startRelayServer({
+    logger: false,
+    webDistDir: tempDir,
+    heartbeatIntervalMs: 40,
+    heartbeatTimeoutMs: 90,
+    config: {
+      host: '127.0.0.1',
+      port: 0,
+      accessCookieName: 'promptx_relay_access',
+      tenantSource: 'test',
+      tenants: [
+        {
+          key: 'user1',
+          hosts: ['user1.promptx.test'],
+          expectedDeviceId: 'user1-mac',
+          deviceToken: 'token-1',
+          accessToken: '',
+        },
+      ],
+    },
+  })
+
+  const socket = new WebSocket(`ws://127.0.0.1:${relay.port}/relay/connect`, {
+    headers: {
+      Host: 'user1.promptx.test',
+      'x-forwarded-host': 'user1.promptx.test',
+    },
+  })
+
+  let acknowledged = false
+  let closeInfo = null
+
+  socket.on('message', (payload, isBinary) => {
+    if (isBinary) {
+      return
+    }
+    const message = JSON.parse(payload.toString('utf8'))
+    if (message.type === 'hello.ack') {
+      acknowledged = true
+    }
+  })
+
+  socket.on('close', (code, reason) => {
+    closeInfo = {
+      code,
+      reason: reason.toString('utf8'),
+    }
+  })
+
+  try {
+    await new Promise((resolve, reject) => {
+      socket.once('open', resolve)
+      socket.once('error', reject)
+    })
+
+    socket.send(JSON.stringify({
+      type: 'hello',
+      deviceId: 'user1-mac',
+      deviceToken: 'token-1',
+      version: 'test',
+    }))
+
+    await waitFor(() => acknowledged === true)
+
+    socket.pong = () => {}
+
+    await waitFor(() => closeInfo && closeInfo.reason === 'heartbeat_timeout', 2_000)
+
+    const status = await requestRelay({
+      port: relay.port,
+      host: 'user1.promptx.test',
+      path: '/relay/device-status',
+    })
+
+    assert.equal(status.statusCode, 200)
+    assert.equal(status.body.deviceOnline, false)
+    assert.equal(status.body.lastDisconnectReason, 'heartbeat_timeout')
+    assert.equal(status.body.lastDisconnectCode, 4000)
+    assert.equal(Array.isArray(status.body.recentEvents), true)
+    assert.equal(status.body.recentEvents.some((event) => event.type === 'heartbeat_timeout'), true)
+    assert.equal(status.body.recentEvents.some((event) => event.type === 'auth_ok'), true)
+  } finally {
+    socket.close()
+    await relay.close()
+  }
+})

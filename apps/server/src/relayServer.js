@@ -20,6 +20,9 @@ const DEFAULT_RELAY_PORT = 3030
 const DEFAULT_RELAY_HOST = '0.0.0.0'
 const DEFAULT_COOKIE_NAME = 'promptx_relay_access'
 const DEVICE_AUTH_TIMEOUT_MS = 5_000
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 25_000
+const DEFAULT_HEARTBEAT_TIMEOUT_MS = 55_000
+const MAX_RECENT_EVENTS = 100
 
 function normalizeRelayHost(value = '') {
   const raw = String(value || '').trim()
@@ -288,7 +291,12 @@ function createTenantState(tenant) {
     socket: null,
     deviceId: '',
     connectedAt: '',
+    lastHeartbeatAt: '',
+    lastDisconnectedAt: '',
+    lastDisconnectCode: 0,
+    lastDisconnectReason: '',
     version: '',
+    recentEvents: [],
   }
 }
 
@@ -318,9 +326,30 @@ async function startRelayServer(options = {}) {
   const wsServer = new WebSocketServer({ noServer: true })
   const requestMap = new Map()
   const tenantStateMap = new Map(config.tenants.map((tenant) => [tenant.key, createTenantState(tenant)]))
+  const tenantConfigMap = new Map(config.tenants.map((tenant) => [tenant.key, tenant]))
+  const heartbeatIntervalMs = Math.max(100, Number(options.heartbeatIntervalMs) || DEFAULT_HEARTBEAT_INTERVAL_MS)
+  const heartbeatTimeoutMs = Math.max(
+    heartbeatIntervalMs,
+    Number(options.heartbeatTimeoutMs) || DEFAULT_HEARTBEAT_TIMEOUT_MS
+  )
 
   function getTenantState(tenantKey) {
     return tenantStateMap.get(String(tenantKey || '').trim()) || null
+  }
+
+  function appendTenantEvent(tenantKey, type, extra = {}) {
+    const tenantState = getTenantState(tenantKey)
+    if (!tenantState) {
+      return null
+    }
+
+    const nextEvent = {
+      at: new Date().toISOString(),
+      type: String(type || '').trim() || 'unknown',
+      ...extra,
+    }
+    tenantState.recentEvents = [nextEvent, ...(tenantState.recentEvents || [])].slice(0, MAX_RECENT_EVENTS)
+    return nextEvent
   }
 
   function getTenantForRequest(request) {
@@ -526,6 +555,10 @@ async function startRelayServer(options = {}) {
           hosts: item.hosts,
           deviceOnline: Boolean(getActiveDeviceSocket(item.key)),
           deviceId: tenantState?.deviceId || '',
+          lastHeartbeatAt: tenantState?.lastHeartbeatAt || '',
+          lastDisconnectedAt: tenantState?.lastDisconnectedAt || '',
+          lastDisconnectReason: tenantState?.lastDisconnectReason || '',
+          recentEvents: tenantState?.recentEvents || [],
         }
       }),
     }
@@ -549,7 +582,12 @@ async function startRelayServer(options = {}) {
       deviceOnline: Boolean(getActiveDeviceSocket(tenant.key)),
       deviceId: tenantState?.deviceId || '',
       connectedAt: tenantState?.connectedAt || '',
+      lastHeartbeatAt: tenantState?.lastHeartbeatAt || '',
+      lastDisconnectedAt: tenantState?.lastDisconnectedAt || '',
+      lastDisconnectCode: tenantState?.lastDisconnectCode || 0,
+      lastDisconnectReason: tenantState?.lastDisconnectReason || '',
       version: tenantState?.version || '',
+      recentEvents: tenantState?.recentEvents || [],
     }
   })
 
@@ -618,6 +656,61 @@ async function startRelayServer(options = {}) {
     return reply.type('text/html; charset=utf-8').send(fs.createReadStream(webIndexPath))
   })
 
+  const heartbeatTimer = setInterval(() => {
+    tenantStateMap.forEach((tenantState, tenantKey) => {
+      const activeSocket = tenantState?.socket
+      if (!activeSocket || activeSocket.readyState !== 1) {
+        return
+      }
+
+      const lastHeartbeatAt = Date.parse(tenantState.lastHeartbeatAt || tenantState.connectedAt || '')
+      const elapsedMs = Number.isFinite(lastHeartbeatAt) ? Date.now() - lastHeartbeatAt : Number.POSITIVE_INFINITY
+      if (elapsedMs > heartbeatTimeoutMs) {
+        const tenant = tenantConfigMap.get(tenantKey)
+        appendTenantEvent(tenantKey, 'heartbeat_timeout', {
+          deviceId: tenantState.deviceId || '',
+          elapsedMs,
+          heartbeatTimeoutMs,
+        })
+        app.log.warn({
+          tenantKey,
+          host: tenant?.hosts?.[0] || '',
+          deviceId: tenantState.deviceId || 'unknown-device',
+          elapsedMs,
+          heartbeatTimeoutMs,
+        }, '[relay] 心跳超时，连接将被关闭')
+        try {
+          activeSocket.close(4000, 'heartbeat_timeout')
+        } catch {
+          // Ignore close failures for half-open sockets.
+        }
+        return
+      }
+
+      try {
+        activeSocket.ping()
+      } catch (error) {
+        const tenant = tenantConfigMap.get(tenantKey)
+        appendTenantEvent(tenantKey, 'heartbeat_ping_failed', {
+          deviceId: tenantState.deviceId || '',
+          error: error?.message || String(error || ''),
+        })
+        app.log.warn({
+          tenantKey,
+          host: tenant?.hosts?.[0] || '',
+          deviceId: tenantState.deviceId || 'unknown-device',
+          error: error?.message || String(error || ''),
+        }, '[relay] 心跳发送失败，连接将被关闭')
+        try {
+          activeSocket.close(4000, 'heartbeat_timeout')
+        } catch {
+          // Ignore close failures for half-open sockets.
+        }
+      }
+    })
+  }, heartbeatIntervalMs)
+  heartbeatTimer.unref?.()
+
   wsServer.on('connection', (socket, request) => {
     const tenant = resolveRelayTenantByHost(config.tenants, request?.headers?.['x-forwarded-host'] || request?.headers?.host || '')
     if (!tenant) {
@@ -628,9 +721,18 @@ async function startRelayServer(options = {}) {
 
     const tenantState = getTenantState(tenant.key)
     let authenticated = false
+    appendTenantEvent(tenant.key, 'socket_connected', {
+      remoteAddress: request?.socket?.remoteAddress || '',
+    })
+    app.log.info({
+      tenantKey: tenant.key,
+      host: tenant.hosts[0] || '',
+      remoteAddress: request?.socket?.remoteAddress || '',
+    }, '[relay] 收到设备连接')
     const authTimer = setTimeout(() => {
       if (!authenticated) {
         app.log.warn({ tenantKey: tenant.key, host: tenant.hosts[0] || '' }, '[relay] 设备认证超时，连接将被关闭')
+        appendTenantEvent(tenant.key, 'auth_timeout')
         socket.close(1008, 'missing_auth')
       }
     }, DEVICE_AUTH_TIMEOUT_MS)
@@ -650,6 +752,7 @@ async function startRelayServer(options = {}) {
       if (!authenticated) {
         if (message.type !== 'hello') {
           app.log.warn({ tenantKey: tenant.key, host: tenant.hosts[0] || '' }, '[relay] 收到未认证设备的非法首包，连接将被关闭')
+          appendTenantEvent(tenant.key, 'invalid_first_message')
           socket.close(1008, 'missing_hello')
           return
         }
@@ -657,6 +760,10 @@ async function startRelayServer(options = {}) {
         const providedToken = String(message.deviceToken || '').trim()
         const providedDeviceId = String(message.deviceId || '').trim()
         if (!constantTimeEqual(providedToken, tenant.deviceToken)) {
+          appendTenantEvent(tenant.key, 'auth_rejected', {
+            reason: 'invalid_token',
+            deviceId: providedDeviceId || '',
+          })
           app.log.warn({
             tenantKey: tenant.key,
             host: tenant.hosts[0] || '',
@@ -666,6 +773,10 @@ async function startRelayServer(options = {}) {
           return
         }
         if (tenant.expectedDeviceId && providedDeviceId !== tenant.expectedDeviceId) {
+          appendTenantEvent(tenant.key, 'auth_rejected', {
+            reason: 'invalid_device',
+            deviceId: providedDeviceId || '',
+          })
           app.log.warn({
             tenantKey: tenant.key,
             host: tenant.hosts[0] || '',
@@ -680,6 +791,9 @@ async function startRelayServer(options = {}) {
         clearTimeout(authTimer)
 
         if (tenantState?.socket && tenantState.socket !== socket) {
+          appendTenantEvent(tenant.key, 'replaced_by_new_connection', {
+            deviceId: providedDeviceId || '',
+          })
           app.log.warn({
             tenantKey: tenant.key,
             host: tenant.hosts[0] || '',
@@ -692,8 +806,16 @@ async function startRelayServer(options = {}) {
           tenantState.socket = socket
           tenantState.deviceId = providedDeviceId
           tenantState.connectedAt = new Date().toISOString()
+          tenantState.lastHeartbeatAt = tenantState.connectedAt
+          tenantState.lastDisconnectedAt = ''
+          tenantState.lastDisconnectCode = 0
+          tenantState.lastDisconnectReason = ''
           tenantState.version = String(message.version || '').trim()
         }
+        appendTenantEvent(tenant.key, 'auth_ok', {
+          deviceId: providedDeviceId || '',
+          version: String(message.version || '').trim(),
+        })
         socket.send(JSON.stringify({
           type: 'hello.ack',
           ok: true,
@@ -735,11 +857,34 @@ async function startRelayServer(options = {}) {
       }
     })
 
+    socket.on('pong', () => {
+      if (tenantState?.socket !== socket) {
+        return
+      }
+      tenantState.lastHeartbeatAt = new Date().toISOString()
+    })
+
+    socket.on('error', (error) => {
+      appendTenantEvent(tenant.key, 'socket_error', {
+        deviceId: tenantState?.deviceId || '',
+        authenticated,
+        error: error?.message || String(error || ''),
+      })
+      app.log.warn({
+        tenantKey: tenant.key,
+        host: tenant.hosts[0] || '',
+        deviceId: tenantState?.deviceId || 'unknown-device',
+        authenticated,
+        error: error?.message || String(error || ''),
+      }, '[relay] 设备连接异常')
+    })
+
     socket.on('close', (code, reason) => {
       const closeReason = reason?.toString('utf8') || ''
       clearTimeout(authTimer)
       if (tenantState?.socket === socket) {
         const disconnectedRequestIds = [...requestMap.keys()].filter((requestId) => requestMap.get(requestId)?.tenantKey === tenant.key)
+        const disconnectedDeviceId = tenantState.deviceId || ''
         disconnectedRequestIds.forEach((requestId) => {
           const record = requestMap.get(requestId)
           requestMap.delete(requestId)
@@ -750,7 +895,15 @@ async function startRelayServer(options = {}) {
         tenantState.socket = null
         tenantState.deviceId = ''
         tenantState.connectedAt = ''
+        tenantState.lastDisconnectedAt = new Date().toISOString()
+        tenantState.lastDisconnectCode = Number(code || 0)
+        tenantState.lastDisconnectReason = closeReason
         tenantState.version = ''
+        appendTenantEvent(tenant.key, 'socket_closed', {
+          deviceId: disconnectedDeviceId,
+          code: Number(code || 0),
+          reason: closeReason || '',
+        })
         app.log.warn({
           tenantKey: tenant.key,
           host: tenant.hosts[0] || '',
@@ -758,6 +911,10 @@ async function startRelayServer(options = {}) {
           reason: closeReason || 'none',
         }, '[relay] 设备已断开')
       } else if (!authenticated) {
+        appendTenantEvent(tenant.key, 'socket_closed_before_auth', {
+          code: Number(code || 0),
+          reason: closeReason || '',
+        })
         app.log.warn({
           tenantKey: tenant.key,
           host: tenant.hosts[0] || '',
@@ -787,6 +944,10 @@ async function startRelayServer(options = {}) {
   const accessUrl = `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${resolvedPort}`
   app.log.info(`promptx relay running at ${accessUrl}`)
   app.log.info(`[relay] 已加载 ${config.tenants.length} 个租户，来源：${config.tenantSource}`)
+  app.log.info({
+    heartbeatIntervalMs,
+    heartbeatTimeoutMs,
+  }, '[relay] 心跳检测已启用')
   config.tenants.forEach((tenant) => {
     app.log.info({
       tenantKey: tenant.key,
@@ -801,6 +962,7 @@ async function startRelayServer(options = {}) {
     config,
     port: resolvedPort,
     async close() {
+      clearInterval(heartbeatTimer)
       await new Promise((resolve) => {
         try {
           wsServer.close(() => resolve())

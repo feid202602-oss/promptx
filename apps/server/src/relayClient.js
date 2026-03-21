@@ -10,6 +10,7 @@ import {
 } from './relayProtocol.js'
 
 const DEFAULT_RECONNECT_DELAY_MS = 3_000
+const MAX_RECENT_EVENTS = 200
 const REQUEST_CANCEL_REASON = 'relay_request_cancelled'
 
 function createDisabledStatus() {
@@ -21,9 +22,12 @@ function createDisabledStatus() {
     deviceId: '',
     lastConnectedAt: '',
     lastDisconnectedAt: '',
+    lastHeartbeatAt: '',
     lastCloseCode: 0,
     lastCloseReason: '',
     lastError: '',
+    reconnectCount: 0,
+    recentEvents: [],
   }
 }
 
@@ -41,6 +45,7 @@ function normalizeCloseReason(reason = '') {
     missing_auth: '设备认证超时',
     replaced_by_new_connection: '已被新的设备连接替换',
     config_updated: '配置已更新，正在重连',
+    heartbeat_timeout: '心跳超时，连接已失效',
   }
 
   return reasonMap[normalized] || normalized
@@ -106,6 +111,16 @@ function createRelayClient({
     Object.assign(status, patch)
   }
 
+  function appendRecentEvent(type, extra = {}) {
+    const nextEvent = {
+      at: new Date().toISOString(),
+      type: String(type || '').trim() || 'unknown',
+      ...extra,
+    }
+    status.recentEvents = [nextEvent, ...status.recentEvents].slice(0, MAX_RECENT_EVENTS)
+    return nextEvent
+  }
+
   function syncStatusFromConfig() {
     updateStatus({
       enabled: config.enabled,
@@ -115,7 +130,14 @@ function createRelayClient({
     })
   }
 
-  syncStatusFromConfig()
+  function getLogContext(extra = {}) {
+    return {
+      relayUrl: config.relayUrl,
+      websocketUrl: config.websocketUrl,
+      deviceId: config.deviceId,
+      ...extra,
+    }
+  }
 
   function logInfo(message, extra) {
     if (extra) {
@@ -140,6 +162,8 @@ function createRelayClient({
     }
     logger.error?.(message)
   }
+
+  syncStatusFromConfig()
 
   function sendFrame(payload = {}) {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -208,6 +232,18 @@ function createRelayClient({
         code: errorCode,
         message: error?.message || '本地 PromptX 请求失败。',
       })
+      appendRecentEvent('local_request_failed', {
+        requestId: record.requestId,
+        path: record.path,
+        method: record.method,
+        error: error?.message || String(error || ''),
+      })
+      logWarn('[relay] 本地请求转发失败', getLogContext({
+        requestId: record.requestId,
+        path: record.path,
+        method: record.method,
+        error: error?.message || String(error || ''),
+      }))
     } finally {
       requestMap.delete(record.requestId)
     }
@@ -254,6 +290,18 @@ function createRelayClient({
           code: 'relay_dispatch_failed',
           message: error?.message || 'Relay 转发失败。',
         })
+        appendRecentEvent('dispatch_failed', {
+          requestId: record.requestId,
+          path: record.path,
+          method: record.method,
+          error: error?.message || String(error || ''),
+        })
+        logError('[relay] 请求派发失败', getLogContext({
+          requestId: record.requestId,
+          path: record.path,
+          method: record.method,
+          error: error?.message || String(error || ''),
+        }))
         requestMap.delete(record.requestId)
       })
       return
@@ -270,9 +318,37 @@ function createRelayClient({
       return
     }
 
+    const nextReconnectCount = Number(status.reconnectCount || 0) + 1
+    updateStatus({
+      reconnectCount: nextReconnectCount,
+    })
+    appendRecentEvent('reconnect_scheduled', {
+      reconnectInMs: DEFAULT_RECONNECT_DELAY_MS,
+      reconnectCount: nextReconnectCount,
+      authenticated,
+    })
+    logWarn('[relay] 已计划重连', getLogContext({
+      reconnectInMs: DEFAULT_RECONNECT_DELAY_MS,
+      reconnectCount: nextReconnectCount,
+      authenticated,
+    }))
+
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
-      connect().catch(() => {})
+      connect().catch((error) => {
+        updateStatus({
+          lastError: error?.message || 'Relay 连接失败。',
+        })
+        appendRecentEvent('reconnect_failed', {
+          reconnectCount: Number(status.reconnectCount || 0),
+          error: error?.message || String(error || ''),
+        })
+        logError('[relay] 重连失败', getLogContext({
+          reconnectCount: Number(status.reconnectCount || 0),
+          error: error?.message || String(error || ''),
+        }))
+        scheduleReconnect()
+      })
     }, DEFAULT_RECONNECT_DELAY_MS)
   }
 
@@ -284,23 +360,27 @@ function createRelayClient({
       return
     }
 
+    appendRecentEvent('connect_start')
+    logInfo('[relay] 开始连接', getLogContext())
     socket = new WebSocket(config.websocketUrl)
     authenticated = false
 
     socket.on('open', () => {
+      appendRecentEvent('ws_open')
       sendFrame({
         type: 'hello',
         deviceId: config.deviceId,
         deviceToken: config.deviceToken,
         version: appVersion,
       })
-      logInfo(`[relay] WebSocket 已建立，等待设备认证 ${config.relayUrl}`)
+      logInfo('[relay] WebSocket 已建立，等待设备认证', getLogContext())
     })
 
     socket.on('message', (payload, isBinary) => {
       if (isBinary) {
         return
       }
+
       let message = null
       try {
         message = JSON.parse(payload.toString('utf8'))
@@ -313,14 +393,35 @@ function createRelayClient({
         updateStatus({
           connected: true,
           lastConnectedAt: new Date().toISOString(),
+          lastHeartbeatAt: new Date().toISOString(),
           lastCloseCode: 0,
           lastCloseReason: '',
           lastError: '',
         })
-        logInfo(`[relay] 已连接 ${config.relayUrl}`)
+        appendRecentEvent('auth_ok', {
+          tenantKey: String(message?.tenantKey || '').trim(),
+          reconnectCount: Number(status.reconnectCount || 0),
+        })
+        logInfo('[relay] 设备认证成功，连接已就绪', getLogContext({
+          tenantKey: String(message?.tenantKey || '').trim(),
+          reconnectCount: Number(status.reconnectCount || 0),
+        }))
         return
       }
+
       handleIncomingFrame(JSON.stringify(message))
+    })
+
+    socket.on('ping', () => {
+      updateStatus({
+        lastHeartbeatAt: new Date().toISOString(),
+      })
+    })
+
+    socket.on('pong', () => {
+      updateStatus({
+        lastHeartbeatAt: new Date().toISOString(),
+      })
     })
 
     socket.on('close', (code, reason) => {
@@ -337,13 +438,18 @@ function createRelayClient({
         lastCloseReason: closeReason,
         ...(nextError ? { lastError: nextError } : {}),
       })
+      appendRecentEvent('close', {
+        code: Number(code || 0),
+        reason: closeReason || '',
+        authenticated: wasAuthenticated,
+      })
       socket = null
       authenticated = false
-      logWarn('[relay] 连接已关闭', {
+      logWarn('[relay] 连接已关闭', getLogContext({
         code: Number(code || 0),
         reason: closeReason || 'none',
         authenticated: wasAuthenticated,
-      })
+      }))
       scheduleReconnect()
     })
 
@@ -351,9 +457,12 @@ function createRelayClient({
       updateStatus({
         lastError: error?.message || 'Relay 连接失败。',
       })
-      logWarn('[relay] 连接异常', {
+      appendRecentEvent('error', {
         error: error?.message || String(error || ''),
       })
+      logWarn('[relay] 连接异常', getLogContext({
+        error: error?.message || String(error || ''),
+      }))
     })
   }
 
@@ -362,15 +471,21 @@ function createRelayClient({
       stopped = false
       if (!config.enabled) {
         syncStatusFromConfig()
+        appendRecentEvent('disabled')
+        logInfo('[relay] 当前未启用，跳过连接', getLogContext())
         return
       }
+
       connect().catch((error) => {
         updateStatus({
           lastError: error?.message || 'Relay 连接失败。',
         })
-        logError('[relay] 初次连接失败', {
+        appendRecentEvent('connect_failed', {
           error: error?.message || String(error || ''),
         })
+        logError('[relay] 初次连接失败', getLogContext({
+          error: error?.message || String(error || ''),
+        }))
         scheduleReconnect()
       })
     },
@@ -390,6 +505,8 @@ function createRelayClient({
       updateStatus({
         connected: false,
       })
+      appendRecentEvent('stopped')
+      logInfo('[relay] 已停止', getLogContext())
     },
     updateConfig(nextConfig = {}) {
       const previousEnabled = config.enabled
@@ -401,6 +518,14 @@ function createRelayClient({
       updateStatus({
         lastError: '',
       })
+      appendRecentEvent('config_updated', {
+        previousEnabled,
+        nextEnabled: config.enabled,
+      })
+      logInfo('[relay] 配置已更新', getLogContext({
+        previousEnabled,
+        nextEnabled: config.enabled,
+      }))
 
       if (!config.enabled) {
         this.stop()
@@ -419,7 +544,12 @@ function createRelayClient({
       }
     },
     getStatus() {
-      return { ...status }
+      return {
+        ...status,
+        recentEvents: Array.isArray(status.recentEvents) ? [...status.recentEvents] : [],
+        socketReadyState: socket?.readyState ?? 3,
+        pendingRequestCount: requestMap.size,
+      }
     },
   }
 }

@@ -24,6 +24,7 @@ const relayStatus = ref(null)
 const relayManagedByEnv = ref(false)
 const relayToggleSaving = ref(false)
 const relayTokenVisible = ref(false)
+const relayCopied = ref(false)
 const relayForm = reactive({
   enabled: false,
   relayUrl: '',
@@ -31,6 +32,7 @@ const relayForm = reactive({
   deviceToken: '',
 })
 const activeSection = ref('theme')
+let relayCopyTimer = null
 
 const settingsSections = [
   {
@@ -77,6 +79,34 @@ const relayStatusClass = computed(() => {
     return 'theme-status-warning'
   }
   return 'theme-status-neutral'
+})
+
+const showRelayDefaultHint = computed(() => (
+  !relayManagedByEnv.value
+  && !relayError.value
+  && !relaySuccess.value
+  && !relayStatus.value?.lastError
+  && !relayStatus.value?.lastCloseReason
+  && !relayStatus.value?.lastConnectedAt
+))
+
+const relayDiagnosticsText = computed(() => {
+  const maskedToken = relayForm.deviceToken
+    ? `${'*'.repeat(Math.max(0, relayForm.deviceToken.length - 4))}${relayForm.deviceToken.slice(-4)}`
+    : ''
+
+  return JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    source: 'local-settings',
+    config: {
+      enabled: relayForm.enabled,
+      relayUrl: relayForm.relayUrl,
+      deviceId: relayForm.deviceId,
+      deviceTokenMasked: maskedToken,
+      managedByEnv: relayManagedByEnv.value,
+    },
+    status: relayStatus.value || null,
+  }, null, 2)
 })
 
 async function loadMeta() {
@@ -192,6 +222,40 @@ async function handleToggleRelayEnabled() {
   }
 }
 
+async function copyText(text) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  textarea.style.pointerEvents = 'none'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+}
+
+async function handleCopyRelayDiagnostics() {
+  try {
+    await copyText(relayDiagnosticsText.value)
+    relayCopied.value = true
+    if (relayCopyTimer) {
+      clearTimeout(relayCopyTimer)
+    }
+    relayCopyTimer = setTimeout(() => {
+      relayCopied.value = false
+      relayCopyTimer = null
+    }, 2000)
+  } catch (error) {
+    relayError.value = error?.message || 'Relay 诊断信息复制失败。'
+  }
+}
+
 function handleKeydown(event) {
   if (!props.open) {
     return
@@ -222,6 +286,10 @@ watch(
 onBeforeUnmount(() => {
   document.body.classList.remove('overflow-hidden')
   window.removeEventListener('keydown', handleKeydown)
+  if (relayCopyTimer) {
+    clearTimeout(relayCopyTimer)
+    relayCopyTimer = null
+  }
 })
 </script>
 
@@ -379,20 +447,42 @@ onBeforeUnmount(() => {
                     >
                       最近连接：{{ new Date(relayStatus.lastConnectedAt).toLocaleString('zh-CN') }}
                     </p>
-                    <p v-else class="theme-muted-text theme-note-text">
+                    <p
+                      v-if="relayStatus?.recentEvents?.length"
+                      class="theme-muted-text theme-note-text"
+                    >
+                      最近事件：{{ relayStatus.recentEvents[0]?.type || 'unknown' }}
+                    </p>
+                    <p
+                      v-if="relayCopied"
+                      class="theme-status-success theme-note-text"
+                    >
+                      Relay 诊断信息已复制，可直接发给我排查。
+                    </p>
+                    <p v-if="showRelayDefaultHint" class="theme-muted-text theme-note-text">
                       建议公网 Relay 使用 HTTPS，并确保云端与本机使用同一个设备 Token；多租户时每个人填写自己的子域名地址。
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs"
-                    :disabled="relayLoading || relaySaving || relayToggleSaving || relayManagedByEnv"
-                    @click="handleSaveRelay"
-                  >
-                    <LoaderCircle v-if="relaySaving" class="h-4 w-4 animate-spin" />
-                    <span>{{ relaySaving ? '保存中...' : '保存远程访问配置' }}</span>
-                  </button>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
+                      :disabled="relayLoading"
+                      @click="handleCopyRelayDiagnostics"
+                    >
+                      <span>{{ relayCopied ? '已复制诊断信息' : '复制 Relay 诊断信息' }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs"
+                      :disabled="relayLoading || relaySaving || relayToggleSaving || relayManagedByEnv"
+                      @click="handleSaveRelay"
+                    >
+                      <LoaderCircle v-if="relaySaving" class="h-4 w-4 animate-spin" />
+                      <span>{{ relaySaving ? '保存中...' : '保存远程访问配置' }}</span>
+                    </button>
+                  </div>
                 </div>
               </section>
             </section>

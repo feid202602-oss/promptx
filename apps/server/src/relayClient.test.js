@@ -80,8 +80,51 @@ test('relay client becomes connected only after hello ack', async () => {
     assert.equal(status.connected, true)
     assert.equal(status.lastError, '')
     assert.equal(Boolean(status.lastConnectedAt), true)
+    assert.equal(Boolean(status.lastHeartbeatAt), true)
     assert.equal(status.lastCloseReason, '')
-    assert.equal(logs.some(([level, args]) => level === 'info' && String(args.at(-1)).includes('已连接')), true)
+    assert.equal(status.pendingRequestCount, 0)
+    assert.equal(status.socketReadyState, 1)
+    assert.equal(status.recentEvents.some((event) => event.type === 'auth_ok'), true)
+    assert.equal(logs.some(([level, args]) => level === 'info' && String(args.at(-1)).includes('连接已就绪')), true)
+
+    client.stop()
+  })
+})
+
+test('relay client records heartbeat timestamp after server ping', async () => {
+  await withRelayServer((socket, message) => {
+    if (message?.type === 'hello') {
+      socket.send(JSON.stringify({
+        type: 'hello.ack',
+        ok: true,
+        deviceId: message.deviceId,
+      }))
+
+      setTimeout(() => {
+        if (socket.readyState === 1) {
+          socket.ping()
+        }
+      }, 40)
+    }
+  }, async (relayWsUrl) => {
+    const client = createRelayClient({
+      relayUrl: relayWsUrl.replace(/^ws/, 'http'),
+      deviceId: 'my-device',
+      deviceToken: 'secret',
+      logger: {
+        info() {},
+        warn() {},
+        error() {},
+      },
+    })
+
+    client.start()
+
+    await waitFor(() => client.getStatus().connected === true)
+    const initialHeartbeatAt = client.getStatus().lastHeartbeatAt
+    await waitFor(() => client.getStatus().lastHeartbeatAt && client.getStatus().lastHeartbeatAt !== initialHeartbeatAt)
+
+    assert.equal(Boolean(client.getStatus().lastHeartbeatAt), true)
 
     client.stop()
   })
@@ -113,6 +156,7 @@ test('relay client records reject reason when relay closes before auth ack', asy
     assert.equal(status.lastCloseCode, 1008)
     assert.equal(status.lastCloseReason, '设备 ID 不匹配')
     assert.match(status.lastError, /设备 ID 不匹配/)
+    assert.equal(status.recentEvents.some((event) => event.type === 'close'), true)
 
     client.stop()
   })
