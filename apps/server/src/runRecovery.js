@@ -72,6 +72,7 @@ export function createRunRecoveryService(options = {}) {
     broadcastServerEvent('runs.changed', {
       taskSlug: nextRun.taskSlug,
       runId: nextRun.id,
+      status: nextRun.status,
     })
     broadcastServerEvent('sessions.changed', {
       sessionId: nextRun.sessionId,

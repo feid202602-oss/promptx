@@ -52,6 +52,7 @@ export function createRunEventIngestService(options = {}) {
     broadcastServerEvent('runs.changed', {
       taskSlug: runRecord.taskSlug,
       runId: runRecord.id,
+      status: runRecord.status,
     })
 
     if (runRecord.sessionId) {

@@ -52,3 +52,29 @@ test('runnerClient fails fast on timeout', async () => {
     await new Promise((resolve) => server.close(resolve))
   }
 })
+
+test('runnerClient updates runner config with internal auth header', async () => {
+  const { server, baseUrl } = await startJsonServer(async (request, response) => {
+    assert.equal(request.method, 'PUT')
+    assert.equal(request.url, '/internal/config')
+    assert.equal(request.headers[getInternalAuthHeaderName()], getInternalAuthToken())
+
+    const chunks = []
+    for await (const chunk of request) {
+      chunks.push(chunk)
+    }
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    assert.equal(body.maxConcurrentRuns, 3)
+
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+    response.end(JSON.stringify({ ok: true, config: { maxConcurrentRuns: 3 } }))
+  })
+
+  try {
+    const client = createRunnerClient({ baseUrl, timeoutMs: 1000 })
+    const payload = await client.updateConfig({ maxConcurrentRuns: 3 })
+    assert.deepEqual(payload, { ok: true, config: { maxConcurrentRuns: 3 } })
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
+})

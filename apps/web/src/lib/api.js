@@ -14,6 +14,11 @@ export {
   updateRelayConfig,
 } from './relayApi.js'
 export {
+  getRuntimeDiagnostics,
+  getSystemConfig,
+  updateSystemConfig,
+} from './systemConfigApi.js'
+export {
   importPdf,
   uploadImage,
 } from './assetApi.js'

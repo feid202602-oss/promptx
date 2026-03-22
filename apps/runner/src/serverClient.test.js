@@ -60,3 +60,34 @@ test('serverClient fails fast on timeout', async () => {
     await new Promise((resolve) => server.close(resolve))
   }
 })
+
+test('serverClient reads system config with internal auth header', async () => {
+  const { server, baseUrl } = await startJsonServer((request, response) => {
+    assert.equal(request.method, 'GET')
+    assert.equal(request.url, '/internal/system-config')
+    assert.equal(request.headers[getInternalAuthHeaderName()], getInternalAuthToken())
+
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+    response.end(JSON.stringify({
+      config: {
+        runner: {
+          maxConcurrentRuns: 4,
+        },
+      },
+    }))
+  })
+
+  try {
+    const client = createServerClient({ baseUrl, timeoutMs: 1000 })
+    const payload = await client.getSystemConfig()
+    assert.deepEqual(payload, {
+      config: {
+        runner: {
+          maxConcurrentRuns: 4,
+        },
+      },
+    })
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
+})

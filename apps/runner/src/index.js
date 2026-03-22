@@ -13,6 +13,7 @@ const runManager = createRunManager({
   logger: app.log,
   serverClient,
 })
+let systemConfigSyncTimer = null
 
 await app.register(cors, {
   origin: true,
@@ -76,6 +77,21 @@ app.get('/internal/diagnostics', async () => ({
   runner: runManager.getDiagnostics(),
 }))
 
+app.put('/internal/config', async (request, reply) => {
+  try {
+    const config = await runManager.updateConfig(request.body || {})
+    return reply.send({
+      ok: true,
+      config,
+    })
+  } catch (error) {
+    request.log.error(error)
+    return reply.code(400).send({
+      message: error.message || 'Runner 配置更新失败。',
+    })
+  }
+})
+
 app.setErrorHandler((error, request, reply) => {
   request.log.error(error)
   reply.code(error.statusCode || 500).send({
@@ -84,6 +100,10 @@ app.setErrorHandler((error, request, reply) => {
 })
 
 const shutdown = async () => {
+  if (systemConfigSyncTimer) {
+    clearTimeout(systemConfigSyncTimer)
+    systemConfigSyncTimer = null
+  }
   await runManager.dispose().catch(() => {})
   await app.close().catch(() => {})
 }
@@ -95,7 +115,37 @@ process.once('SIGTERM', () => {
   shutdown().finally(() => process.exit(0))
 })
 
+async function syncConfigFromServer() {
+  try {
+    const payload = await serverClient.getSystemConfig()
+    const config = await runManager.updateConfig(payload?.config?.runner || {})
+    app.log.info({
+      maxConcurrentRuns: config.maxConcurrentRuns,
+    }, 'runner config synced from server')
+    return true
+  } catch (error) {
+    app.log.warn(error, 'runner config sync from server failed')
+    return false
+  }
+}
+
+function scheduleConfigSync(delayMs) {
+  if (systemConfigSyncTimer) {
+    clearTimeout(systemConfigSyncTimer)
+  }
+
+  systemConfigSyncTimer = setTimeout(async () => {
+    systemConfigSyncTimer = null
+    const synced = await syncConfigFromServer()
+    if (!synced && delayMs < 5000) {
+      scheduleConfigSync(5000)
+    }
+  }, delayMs)
+  systemConfigSyncTimer.unref?.()
+}
+
 app.listen({ port, host }).then(() => {
   app.log.info(`runner listening at http://${host}:${port}`)
   app.log.info(`server callback base: ${serverClient.baseUrl}`)
+  scheduleConfigSync(0)
 })

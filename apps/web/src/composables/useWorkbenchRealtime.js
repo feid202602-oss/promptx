@@ -7,6 +7,7 @@ const listSyncTaskSlug = ref('')
 const sessionsSyncVersion = ref(0)
 const taskRunSyncVersionMap = reactive({})
 const taskDiffSyncVersionMap = reactive({})
+const taskRunChangeMap = reactive({})
 const runEventListenersByTaskSlug = new Map()
 
 let started = false
@@ -83,6 +84,13 @@ function handleServerEvent(event = {}) {
 
   if (eventType === 'runs.changed') {
     listSyncTaskSlug.value = taskSlug
+    if (taskSlug) {
+      taskRunChangeMap[taskSlug] = {
+        runId: String(event.runId || '').trim(),
+        status: String(event.status || '').trim(),
+        sentAt: String(event.sentAt || '').trim(),
+      }
+    }
     if (syncFlags.updatesTaskList) {
       listSyncVersion.value += 1
     }
@@ -143,6 +151,15 @@ export function getTaskDiffSyncVersion(taskSlug = '') {
   return Math.max(0, Number(taskDiffSyncVersionMap[normalizedTaskSlug]) || 0)
 }
 
+export function getTaskRunChange(taskSlug = '') {
+  const normalizedTaskSlug = String(taskSlug || '').trim()
+  if (!normalizedTaskSlug) {
+    return null
+  }
+
+  return taskRunChangeMap[normalizedTaskSlug] || null
+}
+
 export function subscribeTaskRunEvents(taskSlug = '', listener) {
   const normalizedTaskSlug = String(taskSlug || '').trim()
   if (!normalizedTaskSlug || typeof listener !== 'function') {
@@ -177,6 +194,7 @@ export function useWorkbenchRealtime() {
     listSyncTaskSlug,
     sessionsSyncVersion,
     getTaskRunSyncVersion,
+    getTaskRunChange,
     getTaskDiffSyncVersion,
   }
 }

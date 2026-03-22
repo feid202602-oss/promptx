@@ -131,17 +131,19 @@ test('runManager.getDiagnostics 返回活跃 run、排队信息和统计信息',
   const diagnosticsWhileRunning = runManager.getDiagnostics()
   assert.equal(diagnosticsWhileRunning.activeRunCount, 1)
   assert.equal(diagnosticsWhileRunning.runningRunCount, 1)
+  assert.equal(diagnosticsWhileRunning.trackedRunCount, 1)
   assert.equal(diagnosticsWhileRunning.queuedRunCount, 0)
   assert.equal(diagnosticsWhileRunning.metrics.totalStarted, 1)
   assert.equal(diagnosticsWhileRunning.activeRuns[0]?.runId, 'run-diag-1')
   assert.equal(diagnosticsWhileRunning.activeRuns[0]?.cwd, process.cwd())
-  assert.equal(diagnosticsWhileRunning.config.maxConcurrentRuns, 2)
+  assert.equal(diagnosticsWhileRunning.config.maxConcurrentRuns, 3)
 
   await delay(70)
 
   const diagnosticsAfterComplete = runManager.getDiagnostics()
   assert.equal(diagnosticsAfterComplete.activeRunCount, 0)
   assert.equal(diagnosticsAfterComplete.runningRunCount, 0)
+  assert.equal(diagnosticsAfterComplete.trackedRunCount, 0)
   assert.equal(diagnosticsAfterComplete.metrics.totalCompleted, 1)
 })
 
@@ -199,8 +201,9 @@ test('runManager 会按全局并发上限排队，并在前序 run 完成后拉�
   assert.deepEqual(startOrder, ['session-queue-1'])
 
   const diagnosticsWhileQueued = runManager.getDiagnostics()
-  assert.equal(diagnosticsWhileQueued.activeRunCount, 2)
+  assert.equal(diagnosticsWhileQueued.activeRunCount, 1)
   assert.equal(diagnosticsWhileQueued.runningRunCount, 1)
+  assert.equal(diagnosticsWhileQueued.trackedRunCount, 2)
   assert.equal(diagnosticsWhileQueued.queuedRunCount, 1)
   assert.equal(diagnosticsWhileQueued.queuedRuns[0]?.runId, 'run-queue-2')
   assert.equal(diagnosticsWhileQueued.metrics.totalStarted, 1)
@@ -227,6 +230,7 @@ test('runManager 会按全局并发上限排队，并在前序 run 完成后拉�
   const diagnosticsAfterComplete = runManager.getDiagnostics()
   assert.equal(diagnosticsAfterComplete.activeRunCount, 0)
   assert.equal(diagnosticsAfterComplete.runningRunCount, 0)
+  assert.equal(diagnosticsAfterComplete.trackedRunCount, 0)
   assert.equal(diagnosticsAfterComplete.queuedRunCount, 0)
   assert.equal(diagnosticsAfterComplete.metrics.totalStarted, 2)
   assert.equal(diagnosticsAfterComplete.metrics.totalCompleted, 2)
@@ -235,6 +239,136 @@ test('runManager 会按全局并发上限排队，并在前序 run 完成后拉�
     .filter((item) => item.runId === 'run-queue-2')
     .map((item) => item.status)
   assert.deepEqual(secondStatuses.slice(0, 2), ['queued', 'starting'])
+})
+
+test('runManager 可以动态更新 maxConcurrentRuns 并立刻继续拉起排队 run', async () => {
+  const startOrder = []
+  const completions = new Map()
+
+  const runManager = createRunManager({
+    serverClient: createFakeServerClient(),
+    maxConcurrentRuns: 1,
+    resolveRunner() {
+      return {
+        streamSessionPrompt(session) {
+          startOrder.push(session.id)
+          const deferred = createDeferred()
+          completions.set(session.id, deferred)
+          return {
+            child: {
+              pid: 7100 + startOrder.length,
+              exitCode: 0,
+              signalCode: null,
+            },
+            result: deferred.promise,
+            cancel() {},
+          }
+        },
+      }
+    },
+  })
+
+  await runManager.startRun({
+    runId: 'run-update-config-1',
+    taskSlug: 'task-update-config',
+    sessionId: 'session-update-config-1',
+    title: 'Update Config 1',
+    engine: 'codex',
+    cwd: process.cwd(),
+    prompt: 'hello-1',
+  })
+  await runManager.startRun({
+    runId: 'run-update-config-2',
+    taskSlug: 'task-update-config',
+    sessionId: 'session-update-config-2',
+    title: 'Update Config 2',
+    engine: 'codex',
+    cwd: process.cwd(),
+    prompt: 'hello-2',
+  })
+
+  assert.deepEqual(startOrder, ['session-update-config-1'])
+  assert.equal(runManager.getDiagnostics().queuedRunCount, 1)
+  assert.equal(runManager.getDiagnostics().trackedRunCount, 2)
+
+  const config = await runManager.updateConfig({
+    maxConcurrentRuns: 2,
+  })
+  await delay(40)
+
+  assert.equal(config.maxConcurrentRuns, 2)
+  assert.deepEqual(startOrder, ['session-update-config-1', 'session-update-config-2'])
+
+  completions.get('session-update-config-1').resolve({
+    sessionId: 'session-update-config-1',
+    threadId: 'thread-update-config-1',
+    message: 'done-1',
+  })
+  completions.get('session-update-config-2').resolve({
+    sessionId: 'session-update-config-2',
+    threadId: 'thread-update-config-2',
+    message: 'done-2',
+  })
+  await delay(40)
+
+  assert.equal(runManager.getDiagnostics().metrics.totalCompleted, 2)
+})
+
+test('runManager 会为 queued run 持续发送心跳，避免被误判为失联', async () => {
+  const serverClient = createFakeServerClient()
+  const firstCompletion = createDeferred()
+
+  const runManager = createRunManager({
+    serverClient,
+    maxConcurrentRuns: 1,
+    resolveRunner() {
+      return {
+        streamSessionPrompt(session) {
+          return {
+            child: {
+              pid: session.id === 'session-queued-heartbeat-1' ? 7201 : 7202,
+              exitCode: 0,
+              signalCode: null,
+            },
+            result: firstCompletion.promise,
+            cancel() {},
+          }
+        },
+      }
+    },
+  })
+
+  await runManager.startRun({
+    runId: 'run-queued-heartbeat-1',
+    taskSlug: 'task-queued-heartbeat',
+    sessionId: 'session-queued-heartbeat-1',
+    title: 'Queued Heartbeat 1',
+    engine: 'codex',
+    cwd: process.cwd(),
+    prompt: 'hold',
+  })
+  await runManager.startRun({
+    runId: 'run-queued-heartbeat-2',
+    taskSlug: 'task-queued-heartbeat',
+    sessionId: 'session-queued-heartbeat-2',
+    title: 'Queued Heartbeat 2',
+    engine: 'codex',
+    cwd: process.cwd(),
+    prompt: 'queued',
+  })
+
+  await delay(1100)
+
+  const queuedStatuses = serverClient.statuses.filter((item) => item.runId === 'run-queued-heartbeat-2')
+  const queuedHeartbeatCount = queuedStatuses.filter((item) => item.status === 'queued').length
+  assert.equal(queuedHeartbeatCount >= 2, true)
+
+  firstCompletion.resolve({
+    sessionId: 'session-queued-heartbeat-1',
+    threadId: 'thread-queued-heartbeat-1',
+    message: 'done',
+  })
+  await delay(60)
 })
 
 test('runManager 可以直接停止尚未启动的 queued run', async () => {
@@ -287,6 +421,7 @@ test('runManager 可以直接停止尚未启动的 queued run', async () => {
   const diagnosticsAfterStop = runManager.getDiagnostics()
   assert.equal(diagnosticsAfterStop.activeRunCount, 1)
   assert.equal(diagnosticsAfterStop.runningRunCount, 1)
+  assert.equal(diagnosticsAfterStop.trackedRunCount, 1)
   assert.equal(diagnosticsAfterStop.queuedRunCount, 0)
   assert.equal(diagnosticsAfterStop.metrics.totalStarted, 1)
   assert.equal(diagnosticsAfterStop.metrics.totalStopped, 1)

@@ -307,6 +307,20 @@ export function useCodexSessionPanel(props, emit) {
   )
 
   watch(
+    () => Boolean(props.taskRunning),
+    (taskRunning) => {
+      if (!props.active || taskRunning || !sending.value) {
+        return
+      }
+
+      scheduleServerSync({
+        sessions: true,
+        runs: true,
+      })
+    }
+  )
+
+  watch(
     () => props.active,
     (active) => {
       if (active) {

@@ -1,0 +1,305 @@
+import fs from 'node:fs'
+import path from 'node:path'
+
+function listSiblingWorkspaceDirs(baseDir) {
+  if (!baseDir || !fs.existsSync(baseDir)) {
+    return []
+  }
+
+  return fs.readdirSync(baseDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => path.join(baseDir, entry.name))
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+}
+
+function createWorkspaceSuggestionService(options = {}) {
+  const listKnownWorkspacesByEngine = options.listKnownWorkspacesByEngine || (() => [])
+  const listPromptxCodexSessions = options.listPromptxCodexSessions || (() => [])
+  const workspaceParentDir = options.workspaceParentDir || ''
+  const workspaceRootDir = options.workspaceRootDir || ''
+
+  function listWorkspaceSuggestions(limit = 24, engine = 'codex') {
+    const seen = new Set()
+    const suggestions = []
+
+    const addPath = (targetPath) => {
+      const value = String(targetPath || '').trim()
+      if (!value || seen.has(value) || !fs.existsSync(value)) {
+        return
+      }
+
+      try {
+        if (!fs.statSync(value).isDirectory()) {
+          return
+        }
+      } catch {
+        return
+      }
+
+      seen.add(value)
+      suggestions.push(value)
+    }
+
+    addPath(workspaceRootDir)
+    listSiblingWorkspaceDirs(workspaceParentDir).forEach(addPath)
+    listPromptxCodexSessions(limit).forEach((session) => addPath(session.cwd))
+    listKnownWorkspacesByEngine(engine, limit * 2).forEach(addPath)
+
+    return suggestions.slice(0, Math.max(1, Number(limit) || 24))
+  }
+
+  return {
+    listWorkspaceSuggestions,
+  }
+}
+
+function registerCodexRoutes(app, options = {}) {
+  const {
+    broadcastServerEvent = () => {},
+    clearTaskCodexSessionReferences,
+    createPromptxCodexSession,
+    decorateCodexSession,
+    decorateCodexSessionList,
+    deletePromptxCodexSession,
+    getCodexRunById,
+    getPromptxCodexSessionById,
+    getRunningCodexRunBySessionId,
+    isActiveRunStatus,
+    listCodexRunEvents,
+    listDirectoryPickerTree,
+    listPromptxCodexSessions,
+    listWorkspaceSuggestions,
+    listWorkspaceTree,
+    runDispatchService,
+    searchDirectoryPickerEntries,
+    searchWorkspaceEntries,
+    updatePromptxCodexSession,
+  } = options
+
+  app.get('/api/codex/sessions', async () => ({
+    items: decorateCodexSessionList(listPromptxCodexSessions()),
+  }))
+
+  app.get('/api/codex/workspaces', async (request) => ({
+    items: listWorkspaceSuggestions(24, request.query?.engine),
+  }))
+
+  app.get('/api/codex/directories/tree', async (request) => (
+    listDirectoryPickerTree({
+      path: request.query?.path,
+      limit: request.query?.limit,
+    })
+  ))
+
+  app.get('/api/codex/directories/search', async (request) => (
+    searchDirectoryPickerEntries({
+      path: request.query?.path,
+      query: request.query?.q,
+      limit: request.query?.limit,
+    })
+  ))
+
+  app.get('/api/codex/sessions/:sessionId/files/tree', async (request, reply) => {
+    const session = getPromptxCodexSessionById(request.params.sessionId)
+    if (!session) {
+      return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
+    }
+
+    return listWorkspaceTree(session.cwd, {
+      path: request.query?.path,
+      limit: request.query?.limit,
+    })
+  })
+
+  app.get('/api/codex/sessions/:sessionId/files/search', async (request, reply) => {
+    const session = getPromptxCodexSessionById(request.params.sessionId)
+    if (!session) {
+      return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
+    }
+
+    return searchWorkspaceEntries(session.cwd, {
+      query: request.query?.q,
+      limit: request.query?.limit,
+    })
+  })
+
+  app.post('/api/codex/sessions', async (request, reply) => {
+    const session = createPromptxCodexSession(request.body || {})
+    broadcastServerEvent('sessions.changed', {
+      sessionId: session.id,
+    })
+    return reply.code(201).send(decorateCodexSession(session))
+  })
+
+  app.patch('/api/codex/sessions/:sessionId', async (request, reply) => {
+    const session = updatePromptxCodexSession(request.params.sessionId, request.body || {})
+    if (!session) {
+      return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
+    }
+
+    broadcastServerEvent('sessions.changed', {
+      sessionId: session.id,
+    })
+    return decorateCodexSession(session)
+  })
+
+  app.delete('/api/codex/sessions/:sessionId', async (request, reply) => {
+    if (getRunningCodexRunBySessionId(request.params.sessionId)) {
+      return reply.code(409).send({ message: '当前项目正在执行中，请先停止后再删除。' })
+    }
+
+    const affectedTaskSlugs = clearTaskCodexSessionReferences(request.params.sessionId)
+    const session = deletePromptxCodexSession(request.params.sessionId)
+    if (!session) {
+      return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
+    }
+
+    broadcastServerEvent('sessions.changed', {
+      sessionId: request.params.sessionId,
+    })
+    if (affectedTaskSlugs.length) {
+      affectedTaskSlugs.forEach((taskSlug) => {
+        broadcastServerEvent('tasks.changed', {
+          taskSlug,
+          reason: 'session-cleared',
+        })
+      })
+    } else {
+      broadcastServerEvent('tasks.changed', {
+        reason: 'session-cleared',
+      })
+    }
+
+    return reply.code(204).send()
+  })
+
+  app.post('/api/codex/runs/:runId/stop', async (request, reply) => {
+    const runRecord = getCodexRunById(request.params.runId)
+    if (!runRecord) {
+      return reply.code(404).send({ message: '没有找到对应的执行记录。' })
+    }
+
+    const stopResult = await runDispatchService.requestRunStop(request.params.runId, {
+      forceAfterMs: request.body?.forceAfterMs,
+      isActiveRunStatus,
+      reason: request.body?.reason,
+    })
+
+    if (!stopResult?.accepted) {
+      return {
+        run: stopResult?.run || runRecord,
+      }
+    }
+
+    return reply.code(202).send({
+      run: stopResult.run || getCodexRunById(request.params.runId),
+    })
+  })
+
+  app.get('/api/codex/runs/:runId/events', async (request, reply) => {
+    const runRecord = getCodexRunById(request.params.runId)
+    if (!runRecord) {
+      return reply.code(404).send({ message: '没有找到对应的执行记录。' })
+    }
+
+    return {
+      items: listCodexRunEvents(request.params.runId, {
+        afterSeq: request.query?.afterSeq,
+        limit: request.query?.limit,
+      }) || [],
+    }
+  })
+
+  app.get('/api/codex/runs/:runId/stream', async (request, reply) => {
+    const runRecord = getCodexRunById(request.params.runId)
+    if (!runRecord) {
+      return reply.code(404).send({ message: '没有找到对应的执行记录。' })
+    }
+
+    reply.hijack()
+    const requestOrigin = request.headers.origin
+    reply.raw.writeHead(200, {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      ...(requestOrigin ? {
+        'Access-Control-Allow-Origin': requestOrigin,
+        Vary: 'Origin',
+      } : {}),
+    })
+    reply.raw.socket?.setNoDelay?.(true)
+    reply.raw.flushHeaders?.()
+
+    const writeMessage = (payload) => {
+      if (reply.raw.destroyed || reply.raw.writableEnded) {
+        return false
+      }
+
+      try {
+        reply.raw.write(`${JSON.stringify(payload)}\n`)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    let lastSentSeq = Math.max(0, Number(request.query?.afterSeq) || 0)
+    let pollTimer = null
+
+    const closeStream = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer)
+        pollTimer = null
+      }
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) {
+        reply.raw.end()
+      }
+    }
+
+    const flushRunState = () => {
+      const latestRun = getCodexRunById(request.params.runId)
+      if (!latestRun) {
+        closeStream()
+        return
+      }
+
+      writeMessage({
+        type: 'run',
+        run: latestRun,
+      })
+
+      const batchLimit = 500
+      const nextEvents = listCodexRunEvents(request.params.runId, {
+        afterSeq: lastSentSeq,
+        limit: batchLimit,
+      }) || []
+
+      nextEvents.forEach((event) => {
+        lastSentSeq = Math.max(lastSentSeq, Number(event.seq) || 0)
+        writeMessage({
+          type: 'event',
+          event,
+        })
+      })
+
+      if (!isActiveRunStatus(latestRun.status) && nextEvents.length < batchLimit) {
+        closeStream()
+      }
+    }
+
+    flushRunState()
+    if (!reply.raw.destroyed && !reply.raw.writableEnded && isActiveRunStatus(getCodexRunById(request.params.runId)?.status)) {
+      pollTimer = setInterval(flushRunState, 350)
+      pollTimer.unref?.()
+    }
+
+    reply.raw.on('close', closeStream)
+  })
+}
+
+export {
+  createWorkspaceSuggestionService,
+  listSiblingWorkspaceDirs,
+  registerCodexRoutes,
+}

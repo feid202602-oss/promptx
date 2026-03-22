@@ -111,5 +111,8 @@ export function createServerClient(options = {}) {
         body: JSON.stringify(payload),
       })
     },
+    getSystemConfig() {
+      return requestJson('/internal/system-config')
+    },
   }
 }

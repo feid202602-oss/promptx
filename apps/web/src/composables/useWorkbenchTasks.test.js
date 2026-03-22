@@ -4,6 +4,9 @@ import test from 'node:test'
 import {
   buildPromptPreview,
   deriveTaskPreview,
+  isActiveRunStatus,
+  isCurrentTaskSendingState,
+  isTaskRunning,
   mergeTaskSummariesWithWorkspaceDiff,
   resolveTaskDisplayTitle,
 } from './useWorkbenchTasks.js'
@@ -40,6 +43,26 @@ test('deriveTaskPreview compacts whitespace and uses first text-like block', () 
 test('buildPromptPreview trims whitespace and limits length', () => {
   const preview = buildPromptPreview('  hello\n\nworld   from   promptx  ', 12)
   assert.equal(preview, 'hello world ')
+})
+
+test('isTaskRunning only trusts persisted task running state', () => {
+  assert.equal(isTaskRunning({ running: true }), true)
+  assert.equal(isTaskRunning({ running: false }), false)
+  assert.equal(isTaskRunning({}), false)
+})
+
+test('isCurrentTaskSendingState keeps current task disabled during local optimistic send', () => {
+  assert.equal(isCurrentTaskSendingState({ running: false }, true), true)
+  assert.equal(isCurrentTaskSendingState({ running: true }, false), true)
+  assert.equal(isCurrentTaskSendingState({ running: false }, false), false)
+})
+
+test('isActiveRunStatus matches queued through stopping only', () => {
+  assert.equal(isActiveRunStatus('queued'), true)
+  assert.equal(isActiveRunStatus('running'), true)
+  assert.equal(isActiveRunStatus('stopping'), true)
+  assert.equal(isActiveRunStatus('completed'), false)
+  assert.equal(isActiveRunStatus('error'), false)
 })
 
 test('mergeTaskSummariesWithWorkspaceDiff preserves summary for same session', () => {

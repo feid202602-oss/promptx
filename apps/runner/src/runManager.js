@@ -12,13 +12,22 @@ const STOPPING_HEARTBEAT_INTERVAL_MS = Math.max(
   250,
   Number(process.env.PROMPTX_RUNNER_STOP_HEARTBEAT_MS) || Math.min(HEARTBEAT_INTERVAL_MS, 500)
 )
+const QUEUED_HEARTBEAT_INTERVAL_MS = Math.max(
+  250,
+  Number(process.env.PROMPTX_RUNNER_QUEUE_HEARTBEAT_MS) || Math.min(HEARTBEAT_INTERVAL_MS, STOPPING_HEARTBEAT_INTERVAL_MS, 1000)
+)
 const DEFAULT_STOP_TIMEOUT_MS = Math.max(1000, Number(process.env.PROMPTX_RUNNER_STOP_TIMEOUT_MS) || 10000)
 const STOP_TIMEOUT_BUFFER_MS = Math.max(500, Number(process.env.PROMPTX_RUNNER_STOP_TIMEOUT_BUFFER_MS) || 2000)
-const DEFAULT_MAX_CONCURRENT_RUNS = Math.max(1, Number(process.env.PROMPTX_RUNNER_MAX_CONCURRENT_RUNS) || 2)
+const DEFAULT_MAX_CONCURRENT_RUNS = Math.max(1, Number(process.env.PROMPTX_RUNNER_MAX_CONCURRENT_RUNS) || 3)
 const RUNNER_ID = String(process.env.PROMPTX_RUNNER_ID || 'local-runner').trim() || 'local-runner'
 
 function nowIso() {
   return new Date().toISOString()
+}
+
+function normalizeMaxConcurrentRuns(value, fallback = DEFAULT_MAX_CONCURRENT_RUNS) {
+  const normalizedFallback = Math.max(1, Number(fallback) || DEFAULT_MAX_CONCURRENT_RUNS)
+  return Math.max(1, Number(value) || normalizedFallback)
 }
 
 function normalizeSession(payload = {}) {
@@ -106,7 +115,9 @@ export function createRunManager(options = {}) {
   const serverClient = options.serverClient
   const logger = options.logger || console
   const resolveRunner = typeof options.resolveRunner === 'function' ? options.resolveRunner : assertAgentRunner
-  const maxConcurrentRuns = Math.max(1, Number(options.maxConcurrentRuns) || DEFAULT_MAX_CONCURRENT_RUNS)
+  const runtimeConfig = {
+    maxConcurrentRuns: normalizeMaxConcurrentRuns(options.maxConcurrentRuns, DEFAULT_MAX_CONCURRENT_RUNS),
+  }
   const activeRuns = new Map()
   const queuedRunIds = []
   const startedAt = nowIso()
@@ -295,6 +306,27 @@ export function createRunManager(options = {}) {
     }
   }
 
+  function startQueuedHeartbeat(context) {
+    if (context.queueHeartbeatTimer) {
+      return
+    }
+
+    context.queueHeartbeatTimer = setInterval(() => {
+      if (context.finalized || !isQueuedRunStatus(context.status)) {
+        return
+      }
+      postStatus(context).catch(() => {})
+    }, QUEUED_HEARTBEAT_INTERVAL_MS)
+    context.queueHeartbeatTimer.unref?.()
+  }
+
+  function stopQueuedHeartbeat(context) {
+    if (context.queueHeartbeatTimer) {
+      clearInterval(context.queueHeartbeatTimer)
+      context.queueHeartbeatTimer = null
+    }
+  }
+
   function startStopProgressHeartbeat(context) {
     if (context.stopProgressTimer) {
       return
@@ -347,6 +379,7 @@ export function createRunManager(options = {}) {
     }
 
     stopHeartbeat(context)
+    stopQueuedHeartbeat(context)
     stopStopProgressHeartbeat(context)
 
     if (context.stopTimeoutTimer) {
@@ -487,6 +520,7 @@ export function createRunManager(options = {}) {
 
     context.launching = true
     dequeueRun(context.runId)
+    stopQueuedHeartbeat(context)
     context.status = 'starting'
     metrics.totalStarted += 1
     await postStatus(context, {
@@ -501,7 +535,7 @@ export function createRunManager(options = {}) {
   }
 
   async function drainQueuedRuns() {
-    while (getRunningSlotCount() < maxConcurrentRuns) {
+    while (getRunningSlotCount() < runtimeConfig.maxConcurrentRuns) {
       const nextRunId = queuedRunIds[0]
       if (!nextRunId) {
         return
@@ -543,11 +577,13 @@ export function createRunManager(options = {}) {
       return context ? createRunSnapshot(context) : null
     },
     getDiagnostics() {
+      const runningRunCount = getRunningSlotCount()
       return {
         runnerId: RUNNER_ID,
         startedAt,
-        activeRunCount: activeRuns.size,
-        runningRunCount: getRunningSlotCount(),
+        activeRunCount: runningRunCount,
+        runningRunCount,
+        trackedRunCount: activeRuns.size,
         queuedRunCount: queuedRunIds.length,
         activeRuns: [...activeRuns.values()].map((context) => ({
           ...createRunSnapshot(context),
@@ -572,13 +608,24 @@ export function createRunManager(options = {}) {
           },
         },
         config: {
-          maxConcurrentRuns,
+          maxConcurrentRuns: runtimeConfig.maxConcurrentRuns,
           eventFlushIntervalMs: EVENT_FLUSH_INTERVAL_MS,
           heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
+          queuedHeartbeatIntervalMs: QUEUED_HEARTBEAT_INTERVAL_MS,
           stoppingHeartbeatIntervalMs: STOPPING_HEARTBEAT_INTERVAL_MS,
           defaultStopTimeoutMs: DEFAULT_STOP_TIMEOUT_MS,
         },
       }
+    },
+    async updateConfig(patch = {}) {
+      const nextMaxConcurrentRuns = normalizeMaxConcurrentRuns(
+        patch.maxConcurrentRuns,
+        runtimeConfig.maxConcurrentRuns
+      )
+
+      runtimeConfig.maxConcurrentRuns = nextMaxConcurrentRuns
+      await drainQueuedRuns()
+      return this.getDiagnostics().config
     },
     async startRun(payload = {}) {
       const runId = String(payload.runId || '').trim()
@@ -613,6 +660,7 @@ export function createRunManager(options = {}) {
         flushTimer: null,
         flushing: false,
         heartbeatTimer: null,
+        queueHeartbeatTimer: null,
         stopProgressTimer: null,
         stopTimeoutTimer: null,
         stopGraceMs: 0,
@@ -634,6 +682,7 @@ export function createRunManager(options = {}) {
       await postStatus(context, {
         session: context.session,
       })
+      startQueuedHeartbeat(context)
       await drainQueuedRuns()
       return createRunSnapshot(context)
     },

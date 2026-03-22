@@ -122,6 +122,18 @@ export function resolveTaskDisplayTitle(task = {}, blocks = []) {
   return '未命名任务'
 }
 
+export function isTaskRunning(task = {}) {
+  return Boolean(task?.running)
+}
+
+export function isCurrentTaskSendingState(task = {}, localSending = false) {
+  return Boolean(isTaskRunning(task) || localSending)
+}
+
+export function isActiveRunStatus(status = '') {
+  return ['queued', 'starting', 'running', 'stopping'].includes(String(status || '').trim())
+}
+
 export function buildPromptPreview(prompt = '', max = 72) {
   return String(prompt || '')
     .replace(/\s+/g, ' ')
@@ -341,8 +353,14 @@ export function useWorkbenchTasks(options = {}) {
     preview: deriveTaskPreview(draft.value.blocks),
   }, draft.value.blocks))
   const currentSelectedSessionId = computed(() => selectedSessionMap.value[currentTaskSlug.value] || '')
-  const isCurrentTaskSending = computed(() => Boolean(sendingTaskMap.value[currentTaskSlug.value]))
-  const hasAnyTaskSending = computed(() => Object.values(sendingTaskMap.value).some(Boolean))
+  const isCurrentTaskSending = computed(() => isCurrentTaskSendingState(
+    getTaskSummary(currentTaskSlug.value),
+    sendingTaskMap.value[currentTaskSlug.value]
+  ))
+  const hasAnyTaskSending = computed(() => (
+    tasks.value.some((task) => isTaskRunning(task))
+    || Object.values(sendingTaskMap.value).some(Boolean)
+  ))
   const hasCurrentDraftContent = computed(() => hasMeaningfulBlocks(draft.value.blocks))
   const currentTodoItems = computed(() => cloneTodoItems(draft.value.todoItems))
   const pageTitle = computed(() => currentTaskDisplayTitle.value || '未命名任务')
@@ -430,7 +448,7 @@ export function useWorkbenchTasks(options = {}) {
         ? '该任务已有项目历史，不能再切换项目；如需使用新项目，请新建任务。'
         : '',
       displayTitle: resolveTaskDisplayTitle({ title, autoTitle, preview }, blocks),
-      sending: Boolean(task.running || sendingTaskMap.value[task.slug]),
+      sending: isTaskRunning(task),
     }
   }
 
@@ -473,6 +491,29 @@ export function useWorkbenchTasks(options = {}) {
 
   function getTaskRawUrl(slug) {
     return slug ? `${apiBase}/api/tasks/${slug}/raw` : `${apiBase}/api/tasks/`
+  }
+
+  function applyTaskRunningStateFromRealtime(taskSlug = '') {
+    const normalizedTaskSlug = String(taskSlug || '').trim()
+    if (!normalizedTaskSlug) {
+      return
+    }
+
+    const currentSummary = getTaskSummary(normalizedTaskSlug)
+    const change = realtime.getTaskRunChange(normalizedTaskSlug)
+    if (!currentSummary || !change?.status) {
+      return
+    }
+
+    const nextRunning = isActiveRunStatus(change.status)
+    if (Boolean(currentSummary.running) === nextRunning) {
+      return
+    }
+
+    upsertTaskSummary({
+      ...currentSummary,
+      running: nextRunning,
+    })
   }
 
   function handleTaskSendingChange(slug, value) {
@@ -1390,6 +1431,7 @@ export function useWorkbenchTasks(options = {}) {
   watch(
     () => realtime.listSyncVersion.value,
     () => {
+      applyTaskRunningStateFromRealtime(realtime.listSyncTaskSlug.value)
       scheduleServerRefresh(realtime.listSyncTaskSlug.value)
     }
   )

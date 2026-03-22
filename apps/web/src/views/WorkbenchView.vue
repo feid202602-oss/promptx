@@ -134,6 +134,7 @@ const activityPanelProps = computed(() => ({
   sessionSelectionLockReason: currentRenderedTask.value?.sessionSelectionLockReason || '',
   sessionSelectionLocked: Boolean(currentRenderedTask.value?.sessionSelectionLocked),
   taskSlug: currentRenderedTask.value?.slug || '',
+  taskRunning: Boolean(currentRenderedTask.value?.running),
 }))
 const inputPanelProps = computed(() => ({
   canAddTodo: hasCurrentDraftContent.value,

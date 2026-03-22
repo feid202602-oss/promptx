@@ -67,6 +67,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  taskRunning: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const {

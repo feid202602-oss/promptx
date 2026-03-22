@@ -31,6 +31,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  taskRunning: {
+    type: Boolean,
+    default: false,
+  },
   emptyMessage: {
     type: String,
     default: '',
@@ -76,6 +80,7 @@ defineExpose({
       :session-selection-locked="sessionSelectionLocked"
       :session-selection-lock-reason="sessionSelectionLockReason"
       :diff-supported="diffSupported"
+      :task-running="taskRunning"
       @sending-change="emit('sending-change', $event)"
       @selected-session-change="emit('selected-session-change', $event)"
       @open-diff="emit('open-diff', $event)"

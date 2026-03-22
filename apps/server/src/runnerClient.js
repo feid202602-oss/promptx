@@ -113,6 +113,12 @@ export function createRunnerClient(options = {}) {
     getRun(runId) {
       return requestJson(`/internal/runs/${encodeURIComponent(String(runId || '').trim())}`)
     },
+    updateConfig(payload = {}) {
+      return requestJson('/internal/config', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+    },
     getDiagnostics() {
       return requestJson('/internal/diagnostics')
     },
