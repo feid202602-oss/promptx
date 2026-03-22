@@ -831,6 +831,16 @@ const blockLayoutSignature = computed(() =>
     .join('|')
 )
 
+const textBlockContentSignature = computed(() =>
+  blocks.value
+    .map((block, index) => (
+      isTextLikeBlock(block)
+        ? `${index}:${block.type}:${block.content || ''}`
+        : `${index}:${block.type}`
+    ))
+    .join('|')
+)
+
 watch(
   blockLayoutSignature,
   () => {
@@ -855,6 +865,16 @@ watch(
     }
   },
   { immediate: true, deep: true }
+)
+
+watch(
+  textBlockContentSignature,
+  () => {
+    nextTick(() => {
+      resizeAllTextareas()
+    })
+  },
+  { immediate: true }
 )
 
 watch(
@@ -923,7 +943,7 @@ defineExpose({
             :ref="(element) => setTextRef(element, index)"
             rows="1"
             :value="block.content"
-            class="w-full resize-none border-0 bg-transparent p-0 pr-12 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
+            class="w-full resize-none overflow-hidden border-0 bg-transparent p-0 pr-12 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
             :placeholder="index === 0 ? '从这里开始写需求...' : '继续输入...'"
             @focus="handleTextFocus(index)"
             @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
@@ -977,7 +997,7 @@ defineExpose({
             :ref="(element) => setTextRef(element, index)"
             rows="1"
             :value="block.content"
-            class="w-full resize-none border-0 bg-transparent px-4 py-4 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
+            class="w-full resize-none overflow-hidden border-0 bg-transparent px-4 py-4 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
             placeholder="导入内容为空"
             @focus="handleTextFocus(index)"
             @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
