@@ -14,15 +14,6 @@ const currentLocale = ref(DEFAULT_LOCALE)
 const localeReady = ref(false)
 
 function getBrowserLocaleFallback() {
-  if (typeof window === 'undefined') {
-    return DEFAULT_LOCALE
-  }
-
-  const language = String(window.navigator?.language || '').trim().toLowerCase()
-  if (language.startsWith('en')) {
-    return 'en-US'
-  }
-
   return DEFAULT_LOCALE
 }
 
