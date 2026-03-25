@@ -84,6 +84,16 @@ function createTodoItemId() {
   return `todo-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function createEmptyTextBlocks() {
+  return cloneBlocks([
+    {
+      type: BLOCK_TYPES.TEXT,
+      content: '',
+      meta: {},
+    },
+  ])
+}
+
 function deriveAutoTaskTitle(blocks = [], max = 16) {
   return deriveTitleFromBlocks(blocks, max) || ''
 }
@@ -1154,7 +1164,7 @@ function normalizeBlocksForSave(blocks = []) {
 
     draft.value = {
       ...draft.value,
-      blocks: [{ type: 'text', content: '', meta: {} }],
+      blocks: createEmptyTextBlocks(),
     }
     setTaskDraftState(currentTaskSlug.value, draft.value)
     syncDraftSummary()
@@ -1179,7 +1189,7 @@ function normalizeBlocksForSave(blocks = []) {
 
     draft.value = {
       ...draft.value,
-      blocks: [{ type: 'text', content: '', meta: {} }],
+      blocks: createEmptyTextBlocks(),
       todoItems: [
         {
           id: createTodoItemId(),

@@ -48,6 +48,7 @@ const sendLabel = computed(() => {
   <button
     type="button"
     class="tool-button inline-flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs sm:w-auto sm:gap-2 sm:px-3"
+    @mousedown.prevent
     @click="emit('open-file-picker')"
   >
     <Upload class="h-4 w-4" />
@@ -56,6 +57,7 @@ const sendLabel = computed(() => {
   <button
     type="button"
     class="tool-button inline-flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs sm:w-auto sm:gap-2 sm:px-3"
+    @mousedown.prevent
     @click="emit('clear-request')"
   >
     <WandSparkles class="h-4 w-4" />
@@ -65,6 +67,7 @@ const sendLabel = computed(() => {
     type="button"
     class="tool-button inline-flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs sm:w-auto sm:gap-2 sm:px-3"
     :disabled="!canAddTodo"
+    @mousedown.prevent
     @click="emit('add-todo')"
   >
     <Plus class="h-4 w-4" />
@@ -73,6 +76,7 @@ const sendLabel = computed(() => {
   <button
     type="button"
     class="tool-button inline-flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs sm:w-auto sm:gap-2 sm:px-3"
+    @mousedown.prevent
     @click="emit('manage-todo')"
   >
     <List class="h-4 w-4" />
@@ -82,6 +86,7 @@ const sendLabel = computed(() => {
     type="button"
     class="tool-button inline-flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs sm:w-auto sm:gap-2 sm:px-3"
     :disabled="isCurrentTaskSending"
+    @mousedown.prevent
     @click="emit('send-request')"
   >
     <LoaderCircle v-if="sendState === 'sending' || sendState === 'running'" class="h-4 w-4 animate-spin" />

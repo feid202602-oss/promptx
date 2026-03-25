@@ -305,3 +305,40 @@ test('删除前置 block 时，当前输入焦点与内容保持稳定', async (
     await browser.close()
   }
 })
+
+test('点击编辑器工具栏按钮后，继续输入不会立刻丢焦点', async (t) => {
+  const fixture = await createTranscriptFixture({
+    taskTitle: 'E2E editor toolbar focus',
+    taskBlocks: buildTextBlocks('待办前内容'),
+  })
+
+  t.after(async () => {
+    fixture.cleanup()
+    await shutdownPromptxE2EStack()
+  })
+
+  const browser = await chromium.launch({ headless: true })
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+
+  try {
+    await openWorkbenchTask(page, fixture.task.slug)
+
+    const textarea = page.locator('textarea').first()
+    await textarea.waitFor()
+    await textarea.click()
+    await textarea.press('End')
+    await textarea.type(' 先收进代办')
+
+    await page.getByRole('button', { name: '代办', exact: true }).first().click()
+    await page.keyboard.type('继续输入不会丢焦点')
+    await page.waitForTimeout(300)
+
+    const activeTagName = await page.evaluate(() => document.activeElement?.tagName || '')
+    const value = await textarea.inputValue()
+
+    assert.equal(activeTagName, 'TEXTAREA')
+    assert.equal(value, '继续输入不会丢焦点')
+  } finally {
+    await browser.close()
+  }
+})
