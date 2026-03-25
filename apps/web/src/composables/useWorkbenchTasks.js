@@ -901,6 +901,7 @@ function normalizeBlocksForSave(blocks = []) {
       force = false,
       skipIfDirtyOnApply = false,
       skipIfEditingOnApply = false,
+      scrollPanelToBottom = false,
     } = options
     const targetSlug = String(slug || '').trim()
     if (!targetSlug) {
@@ -913,6 +914,7 @@ function normalizeBlocksForSave(blocks = []) {
     clearToast()
 
     try {
+      const previousTaskSlug = String(currentTaskSlug.value || '').trim()
       let state = force ? null : getTaskDraftState(targetSlug)
       let summary = null
       if (!state) {
@@ -962,7 +964,9 @@ function normalizeBlocksForSave(blocks = []) {
       if (focusEditor) {
         nextTick(() => editorRef.value?.focusEditor?.())
       }
-      scrollCurrentPanelToBottom()
+      if (scrollPanelToBottom || targetSlug !== previousTaskSlug) {
+        scrollCurrentPanelToBottom()
+      }
       return true
     } catch (err) {
       if (requestId === loadRequestId) {
