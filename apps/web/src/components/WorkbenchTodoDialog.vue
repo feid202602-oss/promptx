@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onBeforeUnmount, watch } from 'vue'
-import { ArrowUpLeft, Clock3, FileText, Image as ImageIcon, List, Trash2, X } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { ArrowUpLeft, Clock3, FileText, Image as ImageIcon, List, Trash2 } from 'lucide-vue-next'
+import DialogShell from './DialogShell.vue'
 import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
@@ -61,72 +62,37 @@ function formatCreatedAt(value = '') {
   }
 }
 
-function handleKeydown(event) {
-  if (!props.open) {
-    return
-  }
-
-  if (event.key === 'Escape') {
-    emit('close')
-  }
-}
-
-watch(
-  () => props.open,
-  (open) => {
-    document.body.classList.toggle('overflow-hidden', open)
-    if (open) {
-      window.addEventListener('keydown', handleKeydown)
-      return
-    }
-
-    window.removeEventListener('keydown', handleKeydown)
-  },
-  { immediate: true }
-)
-
-onBeforeUnmount(() => {
-  document.body.classList.remove('overflow-hidden')
-  window.removeEventListener('keydown', handleKeydown)
-})
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      v-if="open"
-      class="theme-modal-backdrop fixed inset-0 z-[70] flex items-center justify-center px-4 py-6"
-      @click.self="emit('close')"
-    >
-      <section class="panel flex h-full w-full max-w-3xl flex-col overflow-hidden sm:h-[40rem] sm:max-h-[86vh]">
-        <div class="theme-divider flex items-start justify-between gap-4 border-b px-5 py-4">
-          <div class="min-w-0">
-            <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
-              <List class="h-4 w-4" />
-              <span>{{ t('todoDialog.title') }}</span>
-            </div>
-            <p class="theme-muted-text mt-1 text-xs leading-5">
-              {{ t('todoDialog.intro') }}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            class="theme-icon-button h-8 w-8 shrink-0"
-            @click="emit('close')"
-          >
-            <X class="h-4 w-4" />
-          </button>
+  <DialogShell
+    :open="open"
+    backdrop-class="z-[70] items-center justify-center px-4 py-6"
+    panel-class="h-full max-w-3xl sm:h-[40rem] sm:max-h-[86vh]"
+    header-class="px-5 py-4"
+    body-class="min-h-0 flex flex-1 flex-col overflow-hidden"
+    @close="emit('close')"
+  >
+    <template #title>
+      <div class="min-w-0">
+        <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
+          <List class="h-4 w-4" />
+          <span>{{ t('todoDialog.title') }}</span>
         </div>
+        <p class="theme-muted-text mt-1 text-xs leading-5">
+          {{ t('todoDialog.intro') }}
+        </p>
+      </div>
+    </template>
 
-        <div class="theme-divider flex items-center justify-between gap-3 border-b border-dashed px-5 py-3 text-xs">
-          <span class="theme-muted-text">{{ t('todoDialog.summary', { count: formattedItems.length }) }}</span>
-          <span class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-2 py-1">
-            {{ t('todoDialog.summaryHint') }}
-          </span>
-        </div>
+    <div class="theme-divider flex items-center justify-between gap-3 border-b border-dashed px-5 py-3 text-xs">
+      <span class="theme-muted-text">{{ t('todoDialog.summary', { count: formattedItems.length }) }}</span>
+      <span class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-2 py-1">
+        {{ t('todoDialog.summaryHint') }}
+      </span>
+    </div>
 
-        <div v-if="formattedItems.length" class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+    <div v-if="formattedItems.length" class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <div class="space-y-3">
             <article
               v-for="item in formattedItems"
@@ -194,12 +160,10 @@ onBeforeUnmount(() => {
               </div>
             </article>
           </div>
-        </div>
-
-        <div v-else class="theme-empty-state flex min-h-0 flex-1 items-center justify-center px-6 py-10 text-sm">
-          {{ t('todoDialog.empty') }}
-        </div>
-      </section>
     </div>
-  </Teleport>
+
+    <div v-else class="theme-empty-state flex min-h-0 flex-1 items-center justify-center px-6 py-10 text-sm">
+      {{ t('todoDialog.empty') }}
+    </div>
+  </DialogShell>
 </template>

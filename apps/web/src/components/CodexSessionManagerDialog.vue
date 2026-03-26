@@ -1,17 +1,17 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import {
   ArrowLeft,
   Bot,
   CircleAlert,
   PencilLine,
   Trash2,
-  X,
 } from 'lucide-vue-next'
 import { compareByLocale, formatDateTime, useI18n } from '../composables/useI18n.js'
 import { useMediaQuery } from '../composables/useMediaQuery.js'
 import ConfirmDialog from './ConfirmDialog.vue'
 import CodexDirectoryPickerDialog from './CodexDirectoryPickerDialog.vue'
+import DialogShell from './DialogShell.vue'
 import CodexSessionManagerForm from './CodexSessionManagerForm.vue'
 import CodexSessionManagerList from './CodexSessionManagerList.vue'
 import CodexSessionManagerStatus from './CodexSessionManagerStatus.vue'
@@ -350,16 +350,6 @@ function initializeDialog() {
   openCreateMode()
 }
 
-function handleKeydown(event) {
-  if (!props.open || busy.value) {
-    return
-  }
-
-  if (event.key === 'Escape') {
-    emit('close')
-  }
-}
-
 async function handleRefresh() {
   if (busy.value || typeof props.onRefresh !== 'function') {
     return
@@ -512,10 +502,7 @@ async function handleDelete() {
 watch(
   () => props.open,
   (open) => {
-    document.body.classList.toggle('overflow-hidden', open)
-
     if (open) {
-      window.addEventListener('keydown', handleKeydown)
       initializeDialog()
       if (typeof props.onRefresh === 'function') {
         handleRefresh().catch(() => {})
@@ -525,7 +512,6 @@ watch(
       return
     }
 
-    window.removeEventListener('keydown', handleKeydown)
     showDirectoryPicker.value = false
     showDeleteDialog.value = false
     error.value = ''
@@ -578,61 +564,47 @@ watch(
   }
 )
 
-onBeforeUnmount(() => {
-  document.body.classList.remove('overflow-hidden')
-  window.removeEventListener('keydown', handleKeydown)
-})
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      v-if="open"
-      class="theme-modal-backdrop fixed inset-0 z-50 flex items-end justify-center px-0 py-0 sm:items-center sm:px-4 sm:py-6"
-      @click.self="!busy && emit('close')"
-    >
-      <section class="panel flex h-full w-full max-w-5xl flex-col overflow-hidden sm:h-auto sm:max-h-[88vh]">
-        <ConfirmDialog
-          :open="showDeleteDialog"
-          :title="t('projectManager.confirmDeleteTitle')"
-          :description="activeSession
-            ? t('projectManager.confirmDeleteDescription', { title: activeSession.title || t('projectManager.untitledProject') })
-            : ''"
-          :confirm-text="t('projectManager.confirmDelete')"
-          :cancel-text="t('projectManager.keep')"
-          :loading="deleting"
-          danger
-          @cancel="showDeleteDialog = false"
-          @confirm="handleDelete"
-        />
-        <CodexDirectoryPickerDialog
-          :open="showDirectoryPicker"
-          :initial-path="form.cwd"
-          :suggestions="workspaceSuggestions"
-          @close="showDirectoryPicker = false"
-          @select="handleDirectoryPicked"
-        />
-        <div class="theme-divider flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3 sm:px-5 sm:py-4">
-          <div>
-            <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
-              <Bot class="h-4 w-4" />
-              <span>{{ t('projectManager.managingTitle') }}</span>
-            </div>
-          </div>
+  <ConfirmDialog
+    :open="showDeleteDialog"
+    :title="t('projectManager.confirmDeleteTitle')"
+    :description="activeSession
+      ? t('projectManager.confirmDeleteDescription', { title: activeSession.title || t('projectManager.untitledProject') })
+      : ''"
+    :confirm-text="t('projectManager.confirmDelete')"
+    :cancel-text="t('projectManager.keep')"
+    :loading="deleting"
+    danger
+    @cancel="showDeleteDialog = false"
+    @confirm="handleDelete"
+  />
+  <CodexDirectoryPickerDialog
+    :open="showDirectoryPicker"
+    :initial-path="form.cwd"
+    :suggestions="workspaceSuggestions"
+    @close="showDirectoryPicker = false"
+    @select="handleDirectoryPicked"
+  />
+  <DialogShell
+    :open="open"
+    panel-class="h-full max-w-5xl sm:h-auto sm:max-h-[88vh]"
+    header-class="px-4 py-3 sm:px-5 sm:py-4"
+    body-class="min-h-0 flex-1 overflow-hidden"
+    :close-disabled="busy"
+    :close-on-backdrop="!busy"
+    :close-on-escape="!busy"
+    @close="emit('close')"
+  >
+    <template #title>
+      <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
+        <Bot class="h-4 w-4" />
+        <span>{{ t('projectManager.managingTitle') }}</span>
+      </div>
+    </template>
 
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              class="theme-icon-button h-9 w-9"
-              :disabled="busy"
-              @click="emit('close')"
-            >
-              <X class="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        <div v-if="!isMobileLayout" class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
+    <div v-if="!isMobileLayout" class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
           <aside class="theme-divider theme-muted-panel border-b px-3 py-3 sm:px-4 sm:py-4 lg:border-b-0 lg:border-r">
             <CodexSessionManagerList
               :busy="busy"
@@ -731,9 +703,9 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-        </div>
+    </div>
 
-        <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div v-if="mobileView === 'list'" class="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div class="min-h-0 flex-1 overflow-hidden px-3 py-3">
               <CodexSessionManagerList
@@ -859,8 +831,6 @@ onBeforeUnmount(() => {
               />
             </div>
           </div>
-        </div>
-      </section>
     </div>
-  </Teleport>
+  </DialogShell>
 </template>

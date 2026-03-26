@@ -1,13 +1,13 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Check,
   ChevronRight,
   FolderOpen,
   LoaderCircle,
   Search,
-  X,
 } from 'lucide-vue-next'
+import DialogShell from './DialogShell.vue'
 import { useI18n } from '../composables/useI18n.js'
 import {
   listCodexDirectoryTree,
@@ -483,16 +483,6 @@ function handlePick() {
   emit('close')
 }
 
-function handleKeydown(event) {
-  if (!props.open) {
-    return
-  }
-
-  if (event.key === 'Escape') {
-    emit('close')
-  }
-}
-
 watch(query, () => {
   activeTab.value = query.value.trim() ? 'search' : 'tree'
   scheduleSearch()
@@ -501,15 +491,11 @@ watch(query, () => {
 watch(
   () => props.open,
   (open) => {
-    document.body.classList.toggle('overflow-hidden', open)
-
     if (open) {
-      window.addEventListener('keydown', handleKeydown)
       initializePicker().catch(() => {})
       return
     }
 
-    window.removeEventListener('keydown', handleKeydown)
     if (searchTimer) {
       window.clearTimeout(searchTimer)
       searchTimer = null
@@ -517,45 +503,33 @@ watch(
   }
 )
 
-onBeforeUnmount(() => {
-  document.body.classList.remove('overflow-hidden')
-  window.removeEventListener('keydown', handleKeydown)
-  if (searchTimer) {
-    window.clearTimeout(searchTimer)
-  }
-})
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      v-if="open"
-      class="theme-modal-backdrop fixed inset-0 z-[60] flex items-end justify-center px-0 py-0 sm:items-center sm:px-4 sm:py-6"
-      @click.self="!(treeLoading || searchLoading) && emit('close')"
-    >
-      <section class="panel flex h-full w-full max-w-4xl flex-col overflow-hidden sm:h-auto sm:max-h-[86vh]">
-        <div class="theme-divider flex items-start justify-between gap-3 border-b px-4 py-3 sm:px-5 sm:py-4">
-          <div>
-            <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
-              <FolderOpen class="h-4 w-4" />
-              <span>{{ t('directoryPicker.title') }}</span>
-            </div>
-            <p class="theme-muted-text mt-1 text-xs leading-5">
-              {{ t('directoryPicker.intro') }}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            class="theme-icon-button h-9 w-9"
-            :disabled="treeLoading || searchLoading"
-            @click="emit('close')"
-          >
-            <X class="h-4 w-4" />
-          </button>
+  <DialogShell
+    :open="open"
+    backdrop-class="z-[60] items-end justify-center px-0 py-0 sm:items-center sm:px-4 sm:py-6"
+    panel-class="h-full max-w-4xl sm:h-auto sm:max-h-[86vh]"
+    header-class="px-4 py-3 sm:px-5 sm:py-4"
+    body-class="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5"
+    :close-disabled="treeLoading || searchLoading"
+    :close-on-backdrop="!(treeLoading || searchLoading)"
+    :close-on-escape="!(treeLoading || searchLoading)"
+    @close="emit('close')"
+  >
+    <template #title>
+      <div>
+        <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
+          <FolderOpen class="h-4 w-4" />
+          <span>{{ t('directoryPicker.title') }}</span>
         </div>
+        <p class="theme-muted-text mt-1 text-xs leading-5">
+          {{ t('directoryPicker.intro') }}
+        </p>
+      </div>
+    </template>
 
-        <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5">
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div class="theme-divider mt-4 rounded-sm border border-dashed px-3 py-2">
             <div class="flex items-start gap-2 text-xs leading-5">
               <span class="theme-muted-text shrink-0">{{ t('directoryPicker.currentSelection') }}</span>
@@ -764,8 +738,6 @@ onBeforeUnmount(() => {
               <span>{{ t('directoryPicker.useCurrentDirectory') }}</span>
             </button>
           </div>
-        </div>
-      </section>
     </div>
-  </Teleport>
+  </DialogShell>
 </template>

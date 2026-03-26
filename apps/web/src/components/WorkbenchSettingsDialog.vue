@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Cpu, Eye, EyeOff, Info, LoaderCircle, Palette, Settings2, Wifi, X } from 'lucide-vue-next'
+import { Cpu, Eye, EyeOff, Info, LoaderCircle, Palette, Settings2, Wifi } from 'lucide-vue-next'
+import DialogShell from './DialogShell.vue'
 import DialogSideNav from './DialogSideNav.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import WorkbenchSelect from './WorkbenchSelect.vue'
@@ -573,30 +574,16 @@ function startSystemDiagnosticsPolling() {
   }, 5000)
 }
 
-function handleKeydown(event) {
-  if (!props.open) {
-    return
-  }
-
-  if (event.key === 'Escape') {
-    emit('close')
-  }
-}
-
 watch(
   () => props.open,
   (open) => {
-    document.body.classList.toggle('overflow-hidden', open)
     if (open) {
-      window.addEventListener('keydown', handleKeydown)
       activeSection.value = 'theme'
       loadMeta()
       loadRelayConfig()
       loadSystemConfig()
       return
     }
-
-    window.removeEventListener('keydown', handleKeydown)
   },
   { immediate: true }
 )
@@ -615,8 +602,6 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  document.body.classList.remove('overflow-hidden')
-  window.removeEventListener('keydown', handleKeydown)
   if (relayCopyTimer) {
     clearTimeout(relayCopyTimer)
     relayCopyTimer = null
@@ -630,37 +615,27 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      v-if="open"
-      class="theme-modal-backdrop fixed inset-0 z-[70] flex items-center justify-center px-4 py-6"
-      @click.self="emit('close')"
-    >
-      <section class="panel settings-dialog-panel flex h-full w-full max-w-5xl flex-col overflow-hidden sm:h-[42rem] sm:max-h-[88vh]">
-        <div class="theme-divider settings-dialog-header flex items-start justify-between gap-4 border-b px-5 py-4">
-          <div>
-            <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
-              <Settings2 class="h-4 w-4" />
-              <span>{{ t('common.settings') }}</span>
-            </div>
-          </div>
+  <DialogShell
+    :open="open"
+    backdrop-class="z-[70] items-center justify-center px-4 py-6"
+    panel-class="settings-dialog-panel h-full max-w-5xl sm:h-[42rem] sm:max-h-[88vh]"
+    header-class="settings-dialog-header px-5 py-4"
+    body-class="settings-dialog-body min-h-0 flex flex-1 flex-col sm:flex-row"
+    @close="emit('close')"
+  >
+    <template #title>
+      <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
+        <Settings2 class="h-4 w-4" />
+        <span>{{ t('common.settings') }}</span>
+      </div>
+    </template>
 
-          <button
-            type="button"
-            class="theme-icon-button h-8 w-8 shrink-0"
-            @click="emit('close')"
-          >
-            <X class="h-4 w-4" />
-          </button>
-        </div>
+    <DialogSideNav
+      v-model="activeSection"
+      :sections="settingsSections"
+    />
 
-        <div class="settings-dialog-body min-h-0 flex flex-1 flex-col sm:flex-row">
-          <DialogSideNav
-            v-model="activeSection"
-            :sections="settingsSections"
-          />
-
-          <div class="settings-dialog-content min-h-0 flex-1 overflow-y-auto px-5 py-5">
+    <div class="settings-dialog-content min-h-0 flex-1 overflow-y-auto px-5 py-5">
             <section
               v-if="activeSection === 'theme'"
               class="space-y-4"
@@ -1147,9 +1122,6 @@ onBeforeUnmount(() => {
                 </div>
               </section>
             </section>
-          </div>
-        </div>
-      </section>
     </div>
-  </Teleport>
+  </DialogShell>
 </template>
