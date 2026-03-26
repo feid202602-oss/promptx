@@ -9,6 +9,7 @@ import {
   isTaskRunning,
   mergeTaskSummariesWithWorkspaceDiff,
   resolveTaskDisplayTitle,
+  shouldRefreshWorkspaceDiffSummaries,
 } from './useWorkbenchTasks.js'
 
 test('resolveTaskDisplayTitle prefers manual title over auto title and preview', () => {
@@ -138,4 +139,63 @@ test('mergeTaskSummariesWithWorkspaceDiff clears summary when session is removed
   ])
 
   assert.equal(merged[0].workspaceDiffSummary, null)
+})
+
+test('shouldRefreshWorkspaceDiffSummaries refreshes on initial load when session exists', () => {
+  assert.equal(shouldRefreshWorkspaceDiffSummaries([], [
+    {
+      slug: 'task-1',
+      codexSessionId: 'session-a',
+      running: false,
+      workspaceDiffSummary: null,
+    },
+  ]), true)
+})
+
+test('shouldRefreshWorkspaceDiffSummaries skips refresh when list shape and session state are stable', () => {
+  assert.equal(shouldRefreshWorkspaceDiffSummaries([
+    {
+      slug: 'task-1',
+      codexSessionId: 'session-a',
+      running: false,
+      workspaceDiffSummary: {
+        supported: true,
+        fileCount: 1,
+      },
+    },
+  ], [
+    {
+      slug: 'task-1',
+      codexSessionId: 'session-a',
+      running: false,
+      workspaceDiffSummary: {
+        supported: true,
+        fileCount: 1,
+      },
+    },
+  ]), false)
+})
+
+test('shouldRefreshWorkspaceDiffSummaries refreshes when running state changes', () => {
+  assert.equal(shouldRefreshWorkspaceDiffSummaries([
+    {
+      slug: 'task-1',
+      codexSessionId: 'session-a',
+      running: true,
+      workspaceDiffSummary: {
+        supported: true,
+        fileCount: 1,
+      },
+    },
+  ], [
+    {
+      slug: 'task-1',
+      codexSessionId: 'session-a',
+      running: false,
+      workspaceDiffSummary: {
+        supported: true,
+        fileCount: 1,
+      },
+    },
+  ]), true)
 })

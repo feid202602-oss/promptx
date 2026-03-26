@@ -239,6 +239,60 @@ export function mergeTaskSummariesWithWorkspaceDiff(prevItems = [], nextItems = 
   ]
 }
 
+export function shouldRefreshWorkspaceDiffSummaries(prevItems = [], nextItems = []) {
+  const previousItems = Array.isArray(prevItems) ? prevItems : []
+  const nextTaskItems = Array.isArray(nextItems) ? nextItems : []
+
+  if (!nextTaskItems.length) {
+    return false
+  }
+
+  if (previousItems.length !== nextTaskItems.length) {
+    return true
+  }
+
+  const previousBySlug = new Map(
+    previousItems
+      .map((item) => {
+        const slug = String(item?.slug || '').trim()
+        return slug ? [slug, item] : null
+      })
+      .filter(Boolean)
+  )
+
+  return nextTaskItems.some((item) => {
+    const slug = String(item?.slug || '').trim()
+    if (!slug) {
+      return true
+    }
+
+    const previousItem = previousBySlug.get(slug)
+    if (!previousItem) {
+      return true
+    }
+
+    const currentSessionId = String(item?.codexSessionId || '').trim()
+    const previousSessionId = String(previousItem?.codexSessionId || '').trim()
+    if (currentSessionId !== previousSessionId) {
+      return true
+    }
+
+    if (Boolean(item?.running) !== Boolean(previousItem?.running)) {
+      return true
+    }
+
+    if (currentSessionId && !Object.prototype.hasOwnProperty.call(previousItem || {}, 'workspaceDiffSummary')) {
+      return true
+    }
+
+    if (currentSessionId && previousItem?.workspaceDiffSummary == null) {
+      return true
+    }
+
+    return false
+  })
+}
+
 function persistActiveTaskSlug(slug) {
   if (typeof window === 'undefined') {
     return
@@ -369,6 +423,7 @@ export function useWorkbenchTasks(options = {}) {
   let serverSyncTimer = null
   let workspaceDiffSummaryRequestId = 0
   let pendingServerSyncTaskSlug = null
+  let hydratedTaskUpdatedAtMap = {}
 
   const currentTaskAutoTitle = computed(() => deriveAutoTaskTitle(draft.value.blocks))
   const currentTaskDisplayTitle = computed(() => resolveTaskDisplayTitle({
@@ -408,6 +463,14 @@ function normalizeBlocksForSave(blocks = []) {
   }))
 }
 
+function normalizeTodoItemsForSnapshot(items = []) {
+  return (items || []).map((item) => ({
+    id: String(item?.id || '').trim(),
+    createdAt: String(item?.createdAt || ''),
+    blocks: normalizeBlocksForSave(item?.blocks || []),
+  }))
+}
+
   function createSnapshot(
     title = draft.value.title,
     autoTitle = draft.value.autoTitle,
@@ -420,7 +483,7 @@ function normalizeBlocksForSave(blocks = []) {
       title: String(title || ''),
       autoTitle: String(autoTitle || ''),
       lastPromptPreview: String(lastPromptPreview || ''),
-      todoItems: cloneTodoItems(todoItems),
+      todoItems: normalizeTodoItemsForSnapshot(todoItems),
       codexSessionId: String(codexSessionId || ''),
       blocks: normalizeBlocksForSave(blocks),
     })
@@ -444,6 +507,29 @@ function normalizeBlocksForSave(blocks = []) {
     }
 
     return taskDraftMap.value[slug] || null
+  }
+
+  function markTaskHydrated(taskSlug, updatedAt = '') {
+    const normalizedSlug = String(taskSlug || '').trim()
+    if (!normalizedSlug) {
+      return
+    }
+
+    hydratedTaskUpdatedAtMap = {
+      ...hydratedTaskUpdatedAtMap,
+      [normalizedSlug]: String(updatedAt || '').trim(),
+    }
+  }
+
+  function isTaskHydrationFresh(taskSlug = '') {
+    const normalizedSlug = String(taskSlug || '').trim()
+    if (!normalizedSlug) {
+      return false
+    }
+
+    const summaryUpdatedAt = String(getTaskSummary(normalizedSlug)?.updatedAt || '').trim()
+    const hydratedUpdatedAt = String(hydratedTaskUpdatedAtMap[normalizedSlug] || '').trim()
+    return Boolean(summaryUpdatedAt && hydratedUpdatedAt && summaryUpdatedAt === hydratedUpdatedAt)
   }
 
   function buildRenderedTask(task) {
@@ -700,6 +786,7 @@ function normalizeBlocksForSave(blocks = []) {
 
     const summary = toTaskSummary(taskRecord)
     upsertTaskSummary(summary)
+    markTaskHydrated(slug, summary.updatedAt || taskRecord.updatedAt || '')
 
     if (slug !== currentTaskSlug.value) {
       return
@@ -786,14 +873,17 @@ function normalizeBlocksForSave(blocks = []) {
     }
 
     try {
+      const previousTasks = tasks.value
       const payload = await listTasks()
       const nextTasks = mergeTaskSummariesWithWorkspaceDiff(
-        tasks.value,
+        previousTasks,
         (payload.items || []).map(toTaskSummary)
       )
       tasks.value = nextTasks
       syncSendingTaskMapWithTasks(nextTasks)
-      refreshTaskWorkspaceDiffSummaries(nextTasks)
+      if (shouldRefreshWorkspaceDiffSummaries(previousTasks, nextTasks)) {
+        refreshTaskWorkspaceDiffSummaries(nextTasks)
+      }
     } catch (err) {
       if (!silent) {
         error.value = err.message
@@ -807,6 +897,7 @@ function normalizeBlocksForSave(blocks = []) {
 
   async function syncTaskStateAfterServerChange(taskSlug = '') {
     const currentSlug = String(currentTaskSlug.value || '').trim()
+    const changedTaskSlug = String(taskSlug || '').trim()
     if (!currentSlug) {
       return
     }
@@ -826,7 +917,11 @@ function normalizeBlocksForSave(blocks = []) {
       return
     }
 
-    if (taskSlug && taskSlug !== currentSlug) {
+    if (changedTaskSlug && changedTaskSlug !== currentSlug) {
+      return
+    }
+
+    if (!changedTaskSlug) {
       return
     }
 
@@ -892,6 +987,7 @@ function normalizeBlocksForSave(blocks = []) {
         ...task,
         blocks: normalizedBlocks,
       }),
+      updatedAt: String(task.updatedAt || ''),
     }
   }
 
@@ -915,12 +1011,15 @@ function normalizeBlocksForSave(blocks = []) {
 
     try {
       const previousTaskSlug = String(currentTaskSlug.value || '').trim()
-      let state = force ? null : getTaskDraftState(targetSlug)
+      const cachedState = getTaskDraftState(targetSlug)
+      const canReuseForcedCache = force && cachedState && isTaskHydrationFresh(targetSlug)
+      let state = force && !canReuseForcedCache ? null : cachedState
       let summary = null
       if (!state) {
         const hydrated = await hydrateTaskFromServer(targetSlug)
         state = hydrated?.state || null
         summary = hydrated?.summary || null
+        markTaskHydrated(targetSlug, hydrated?.updatedAt || summary?.updatedAt || '')
       }
 
       if (requestId !== loadRequestId) {
@@ -1031,6 +1130,7 @@ function normalizeBlocksForSave(blocks = []) {
         )
         hasUnsavedChanges.value = false
         upsertTaskSummary(toTaskSummary(task))
+        markTaskHydrated(currentTaskSlug.value, task.updatedAt || '')
         if (!auto && !silent) {
           flashToast(translate('taskActions.taskSaved'))
         }

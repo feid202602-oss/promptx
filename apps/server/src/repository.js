@@ -351,6 +351,24 @@ function normalizeTaskTodoItemsInput(items = []) {
     .slice(0, 100)
 }
 
+function areNormalizedBlocksEqual(currentBlocks = [], nextBlocks = []) {
+  if (currentBlocks.length !== nextBlocks.length) {
+    return false
+  }
+
+  return currentBlocks.every((block, index) => {
+    const nextBlock = nextBlocks[index]
+    if (!nextBlock) {
+      return false
+    }
+
+    return block.type === nextBlock.type
+      && block.content === nextBlock.content
+      && Number(block.sortOrder) === index
+      && JSON.stringify(block.meta || {}) === nextBlock.metaJson
+  })
+}
+
 function parseTaskTodoItems(rawValue = '[]') {
   try {
     return normalizeTaskTodoItemsInput(JSON.parse(String(rawValue || '[]')))
@@ -552,6 +570,38 @@ export function updateTask(slug, input = {}) {
   const blocks = hasBlocks ? input.blocks.map(normalizeBlockInput) : []
   const currentBlocks = loadBlocks(existing.id)
   const currentBlockMap = new Map(currentBlocks.map((block) => [block.id, block]))
+  const taskChanged =
+    title !== String(existing.title || '')
+    || autoTitle !== String(existing.auto_title || '')
+    || lastPromptPreview !== String(existing.last_prompt_preview || '')
+    || todoItemsJson !== String(existing.todo_items_json || '[]')
+    || codexSessionId !== String(existing.codex_session_id || '')
+    || visibility !== normalizeVisibility(existing.visibility)
+    || expiresAt !== existing.expires_at
+    || Number(automation.enabled ? 1 : 0) !== Number(existing.automation_enabled || 0)
+    || automation.cron !== String(existing.automation_cron || '')
+    || automation.timezone !== normalizeTaskAutomationTimezone(existing.automation_timezone)
+    || automation.concurrencyPolicy !== normalizeTaskAutomationConcurrencyPolicy(existing.automation_concurrency_policy)
+    || automation.lastTriggeredAt !== String(existing.automation_last_triggered_at || '')
+    || automation.nextTriggerAt !== String(existing.automation_next_trigger_at || '')
+    || Number(notification.enabled ? 1 : 0) !== Number(existing.notification_enabled || 0)
+    || notification.channelType !== String(existing.notification_channel_type || '')
+    || notification.webhookUrl !== String(existing.notification_webhook_url || '')
+    || notification.secret !== String(existing.notification_secret || '')
+    || notification.triggerOn !== String(existing.notification_trigger_on || '')
+    || notification.locale !== normalizeTaskNotificationLocale(existing.notification_locale)
+    || notification.messageMode !== normalizeTaskNotificationMessageMode(existing.notification_message_mode)
+    || notification.lastStatus !== String(existing.notification_last_status || '')
+    || notification.lastError !== String(existing.notification_last_error || '')
+    || notification.lastSentAt !== String(existing.notification_last_sent_at || '')
+    || (hasBlocks && !areNormalizedBlocksEqual(currentBlocks, blocks))
+
+  if (!taskChanged) {
+    return {
+      ...getTaskBySlug(slug),
+      changed: false,
+    }
+  }
 
   transaction(() => {
     run(
@@ -634,7 +684,10 @@ export function updateTask(slug, input = {}) {
     })
   })
 
-  return getTaskBySlug(slug)
+  return {
+    ...getTaskBySlug(slug),
+    changed: true,
+  }
 }
 
 export function deleteTask(slug) {

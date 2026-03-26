@@ -13,6 +13,22 @@ const runEventListenersByTaskSlug = new Map()
 let started = false
 let unsubscribeServerEvents = null
 
+const TASK_LIST_SYNC_REASONS = new Set([
+  'created',
+  'updated',
+  'deleted',
+  'session-linked',
+  'session-cleared',
+])
+
+const TERMINAL_RUN_STATUSES = new Set([
+  'completed',
+  'error',
+  'stopped',
+  'interrupted',
+  'stop_timeout',
+])
+
 function bumpVersion(versionMap, taskSlug = '') {
   const normalizedTaskSlug = String(taskSlug || '').trim()
   if (!normalizedTaskSlug) {
@@ -27,11 +43,29 @@ export function getRealtimeEventSyncFlags(event = {}) {
   const reason = String(event.reason || '').trim()
 
   return {
-    updatesTaskList: eventType === 'ready' || eventType === 'tasks.changed' || eventType === 'runs.changed',
+    updatesTaskList: eventType === 'runs.changed'
+      || (eventType === 'tasks.changed' && TASK_LIST_SYNC_REASONS.has(reason)),
     updatesSessions: eventType === 'ready' || eventType === 'runs.changed' || eventType === 'sessions.changed',
     updatesTaskRuns: eventType === 'runs.changed',
     updatesTaskDiff: eventType === 'runs.changed' || (eventType === 'tasks.changed' && (reason === 'session-linked' || reason === 'session-cleared')),
   }
+}
+
+function isRepeatedTerminalRunChange(previousChange = null, nextChange = null) {
+  const previousRunId = String(previousChange?.runId || '').trim()
+  const previousStatus = String(previousChange?.status || '').trim()
+  const nextRunId = String(nextChange?.runId || '').trim()
+  const nextStatus = String(nextChange?.status || '').trim()
+
+  if (!previousRunId || !nextRunId || previousRunId !== nextRunId) {
+    return false
+  }
+
+  if (!previousStatus || previousStatus !== nextStatus) {
+    return false
+  }
+
+  return TERMINAL_RUN_STATUSES.has(nextStatus)
 }
 
 function dispatchTaskRunEvent(taskSlug = '', payload = {}) {
@@ -66,7 +100,6 @@ function handleServerEvent(event = {}) {
   if (eventType === 'ready') {
     readyVersion.value += 1
     listSyncTaskSlug.value = ''
-    listSyncVersion.value += 1
     sessionsSyncVersion.value += 1
     return
   }
@@ -84,14 +117,17 @@ function handleServerEvent(event = {}) {
 
   if (eventType === 'runs.changed') {
     listSyncTaskSlug.value = taskSlug
-    if (taskSlug) {
-      taskRunChangeMap[taskSlug] = {
-        runId: String(event.runId || '').trim(),
-        status: String(event.status || '').trim(),
-        sentAt: String(event.sentAt || '').trim(),
-      }
+    const nextRunChange = {
+      runId: String(event.runId || '').trim(),
+      status: String(event.status || '').trim(),
+      sentAt: String(event.sentAt || '').trim(),
     }
-    if (syncFlags.updatesTaskList) {
+    const previousRunChange = taskSlug ? taskRunChangeMap[taskSlug] || null : null
+    const skipListAndDiffRefresh = isRepeatedTerminalRunChange(previousRunChange, nextRunChange)
+    if (taskSlug) {
+      taskRunChangeMap[taskSlug] = nextRunChange
+    }
+    if (syncFlags.updatesTaskList && !skipListAndDiffRefresh) {
       listSyncVersion.value += 1
     }
     if (syncFlags.updatesSessions) {
@@ -100,7 +136,7 @@ function handleServerEvent(event = {}) {
     if (syncFlags.updatesTaskRuns) {
       bumpVersion(taskRunSyncVersionMap, taskSlug)
     }
-    if (syncFlags.updatesTaskDiff) {
+    if (syncFlags.updatesTaskDiff && !skipListAndDiffRefresh) {
       bumpVersion(taskDiffSyncVersionMap, taskSlug)
     }
     return

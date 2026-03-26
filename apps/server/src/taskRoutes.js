@@ -189,10 +189,12 @@ function registerTaskRoutes(app, options = {}) {
     if (result.error === 'not_found') {
       return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
-    broadcastServerEvent('tasks.changed', {
-      taskSlug: request.params.slug,
-      reason: 'updated',
-    })
+    if (result.changed !== false) {
+      broadcastServerEvent('tasks.changed', {
+        taskSlug: request.params.slug,
+        reason: 'updated',
+      })
+    }
     return decorateTask(result)
   })
 
