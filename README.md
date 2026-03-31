@@ -12,6 +12,11 @@ PromptX 是一个面向本机 AI Agent 协作的工作台。
 
 你继续使用熟悉的 agent CLI，PromptX 负责把输入整理、项目绑定、执行过程、最终回复和代码变更放进同一个工作台里。
 
+并且，PromptX 和这些 agent CLI 之间可以互相复用会话：
+
+- 可以在 `Codex`、`Claude Code`、`OpenCode` 里先创建会话，再回到 PromptX 里继续
+- 也可以在 PromptX 里创建和推进项目，再回到 agent CLI 里直接恢复同一个会话
+
 ## 快速开始
 
 ### 运行前提
@@ -54,6 +59,7 @@ promptx stop
 - 过程可见：同页查看执行过程、最终回复、历史 run
 - 代码审查：直接查看 workspace / 任务累计 / 单次 run 的 diff
 - 多引擎统一：当前支持 `Codex`、`Claude Code`、`OpenCode`
+- 会话互通：PromptX 与 `Codex`、`Claude Code`、`OpenCode` 可双向复用会话
 - 远程访问：支持通过 Relay 从手机或外网访问自己的 PromptX
 
 ## 系统截图

@@ -12,6 +12,11 @@ Task -> Project -> Directory -> Thread -> Run -> Diff
 
 You keep using the agent CLI you already know, while PromptX brings inputs, project binding, execution logs, final replies, and code diffs into one workspace.
 
+PromptX can also reuse sessions with these agent CLIs in both directions:
+
+- Start a session in `Codex`, `Claude Code`, or `OpenCode`, then continue it inside PromptX
+- Start and advance a project inside PromptX, then resume the same session back in the agent CLI
+
 ## Quick Start
 
 ### Requirements
@@ -54,6 +59,7 @@ promptx stop
 - Visible process: inspect logs, final replies, and run history
 - Built-in diff review: inspect workspace, accumulated task, or per-run changes
 - Multi-engine support: `Codex`, `Claude Code`, `OpenCode`
+- Session interoperability: PromptX can reuse sessions with `Codex`, `Claude Code`, and `OpenCode`
 - Remote access: connect from mobile or external networks through Relay
 
 ## Screenshots
