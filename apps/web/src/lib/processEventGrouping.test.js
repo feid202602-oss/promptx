@@ -42,6 +42,25 @@ test('aggregateProcessEvents keeps latest todo snapshot and collapses updates', 
   ])
 })
 
+test('aggregateProcessEvents keeps only the latest todo snapshot across separated groups', () => {
+  const items = aggregateProcessEvents([
+    { id: '1', title: '更新待办列表', kind: 'todo', groupType: 'todo', phase: 'started', detailBlocks: [{ type: 'checklist', items: [{ completed: true, text: 'A' }, { completed: true, text: 'B' }, { completed: false, text: 'C' }] }] },
+    { id: '2', title: '命令执行完成', kind: 'command', groupType: 'read', groupTarget: '/tmp/a', phase: 'completed' },
+    { id: '3', title: '更新待办列表', kind: 'todo', groupType: 'todo', phase: 'updated', detailBlocks: [{ type: 'checklist', items: [{ completed: true, text: 'A' }, { completed: true, text: 'B' }, { completed: true, text: 'C' }] }] },
+    { id: '4', title: '更新待办列表', kind: 'todo', groupType: 'todo', phase: 'completed', detailBlocks: [{ type: 'checklist', items: [{ completed: true, text: 'A' }, { completed: true, text: 'B' }, { completed: true, text: 'C' }] }] },
+  ])
+
+  assert.equal(items.length, 2)
+  assert.equal(items[0].title, '命令执行完成')
+  assert.equal(items[1].title, '待办列表')
+  assert.equal(items[1].groupedCount, 3)
+  assert.deepEqual(items[1].detailBlocks?.[0]?.items, [
+    { completed: true, text: 'A' },
+    { completed: true, text: 'B' },
+    { completed: true, text: 'C' },
+  ])
+})
+
 test('aggregateProcessEvents collapses consecutive reasoning updates to latest detail', () => {
   const items = aggregateProcessEvents([
     { id: '1', title: '思考过程', kind: 'reasoning', groupType: 'reasoning', phase: 'updated', detailBlocks: [{ type: 'markdown', text: '第一版思路' }] },

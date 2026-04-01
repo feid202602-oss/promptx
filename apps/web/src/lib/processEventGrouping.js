@@ -164,8 +164,41 @@ function summarizeGroup(items = []) {
   }]
 }
 
+function collapseTodoSnapshots(events = []) {
+  const list = Array.isArray(events) ? events : []
+  const todoItems = list.filter((item) => String(item?.groupType || '').trim() === 'todo')
+  if (todoItems.length <= 1) {
+    return list
+  }
+
+  const [latestTodo] = summarizeGroup(todoItems)
+  if (!latestTodo) {
+    return list
+  }
+
+  const lastTodoIndex = list.reduce((result, item, index) => (
+    String(item?.groupType || '').trim() === 'todo' ? index : result
+  ), -1)
+
+  if (lastTodoIndex < 0) {
+    return list
+  }
+
+  return list.flatMap((item, index) => {
+    if (String(item?.groupType || '').trim() !== 'todo') {
+      return [item]
+    }
+
+    if (index === lastTodoIndex) {
+      return [latestTodo]
+    }
+
+    return []
+  })
+}
+
 export function aggregateProcessEvents(events = []) {
-  const list = Array.isArray(events) ? events.filter(Boolean) : []
+  const list = collapseTodoSnapshots(Array.isArray(events) ? events.filter(Boolean) : [])
   const result = []
 
   for (let index = 0; index < list.length; index += 1) {
