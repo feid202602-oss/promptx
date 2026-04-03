@@ -129,6 +129,10 @@ const previewPromptImageUrl = ref('')
 const { t } = useI18n()
 
 function shouldHideSystemEvent(item = {}) {
+  if (item?.kind === 'reasoning') {
+    return true
+  }
+
   const title = String(item?.title || '').trim()
   if (!title) {
     return false
@@ -391,7 +395,7 @@ defineExpose({
                   <button
                     v-if="canCollapsePrompt(turn)"
                     type="button"
-                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
                     @click="togglePrompt(turn)"
                   >
                     <ChevronDown v-if="isPromptCollapsed(turn)" class="h-3 w-3" />
@@ -414,9 +418,9 @@ defineExpose({
                     >{{ item.content }}</pre>
                     <div
                       v-else
-                      class="transcript-card__media overflow-hidden rounded-sm border border-dashed border-[var(--theme-promptBorder)]/70 bg-white/40"
+                      class="transcript-card__media overflow-hidden rounded-sm border border-[color:color-mix(in_srgb,var(--theme-promptBorder)_45%,transparent)] bg-white/40"
                     >
-                      <div class="flex items-center gap-2 border-b border-dashed border-[var(--theme-promptBorder)]/60 px-3 py-2 text-xs opacity-80">
+                      <div class="flex items-center gap-2 border-b border-[color:color-mix(in_srgb,var(--theme-promptBorder)_35%,transparent)] px-3 py-2 text-xs opacity-80">
                         <ImageIcon class="h-3.5 w-3.5" />
                         <span>{{ t('sessionPanel.promptImage') }}</span>
                       </div>
@@ -457,7 +461,7 @@ defineExpose({
                   <button
                     v-if="shouldShowEventToggle(turn)"
                     type="button"
-                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
                     :disabled="turn.eventsLoading"
                     @click="toggleTurnEvents(turn)"
                   >
@@ -520,7 +524,7 @@ defineExpose({
                   <span
                     v-for="item in getDisplayTurnSummaryItems(turn)"
                     :key="item.key"
-                    class="transcript-card__pill inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1"
+                    class="transcript-card__pill inline-flex items-center gap-1 rounded-sm border border-dashed border-current/[0.12] px-2 py-1"
                   >
                     <span class="opacity-75">{{ item.label }}</span>
                     <span class="font-medium">{{ item.value }}</span>
@@ -530,7 +534,7 @@ defineExpose({
                   <button
                     v-if="diffSupported && turn.runId"
                     type="button"
-                    class="transcript-card__toggle shrink-0 inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle shrink-0 inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
                     @click="openTurnDiff(turn)"
                   >
                     <FileDiff class="h-3 w-3" />
@@ -553,7 +557,7 @@ defineExpose({
                 <button
                   v-if="canCollapseResponse(turn)"
                   type="button"
-                  class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
+                  class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
                   @click="toggleResponse(turn)"
                 >
                   <ChevronDown v-if="isResponseCollapsed(turn)" class="h-3 w-3" />

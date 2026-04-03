@@ -4,6 +4,7 @@
 
 :root {
   color-scheme: light;
+  --theme-fontMono: "IBM Plex Mono", monospace;
   --theme-processDetailRadius: 0;
   --theme-processDetailBadgeRadius: 0;
   --theme-appBg: #f1eee8;
@@ -327,7 +328,7 @@ body {
     border-radius: var(--theme-processDetailBadgeRadius);
     background: color-mix(in srgb, var(--theme-codeBg) 92%, transparent);
     color: inherit;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: var(--theme-fontMono);
     font-size: 0.92em;
     padding: 0.1rem 0.35rem;
   }
@@ -352,7 +353,7 @@ body {
     border: 0;
     color: inherit;
     display: block;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: var(--theme-fontMono);
     font-size: 0.85rem;
     line-height: 1.72;
     padding: 0;
@@ -465,7 +466,7 @@ body {
 
   .process-detail .codex-markdown :not(pre) > code,
   .process-detail .codex-markdown pre code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: var(--theme-fontMono);
     font-size: 11px;
     line-height: 1.65;
   }
@@ -529,6 +530,10 @@ body {
     padding: 0.45rem 0.6rem;
   }
 
+  .process-detail-meta__item--value-only {
+    display: block;
+  }
+
   .process-detail-meta__label {
     opacity: 0.65;
     flex-shrink: 0;
@@ -537,6 +542,10 @@ body {
   .process-detail-meta__value {
     min-width: 0;
     word-break: break-all;
+  }
+
+  .process-detail-meta__value--mono {
+    font-family: var(--theme-fontMono);
   }
 
   .process-detail-meta__item--long .process-detail-meta__value {
@@ -555,14 +564,39 @@ body {
     word-break: break-word;
     font-size: 11px;
     line-height: 1.65;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: var(--theme-fontMono);
   }
 
   .process-detail-footnote {
     margin-top: 0.45rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
     font-size: 11px;
     line-height: 1.5;
     opacity: 0.7;
+  }
+
+  .process-detail-footnote--compact {
+    margin-top: 0.35rem;
+    padding: 0 0.75rem 0.65rem;
+  }
+
+  .process-detail-footnote__toggle {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    opacity: 0.88;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 0.16em;
+  }
+
+  .process-detail-footnote__toggle:hover {
+    opacity: 1;
   }
 
   .process-detail-directory__heading {
@@ -589,7 +623,7 @@ body {
   .process-detail-directory__list {
     display: grid;
     gap: 0.35rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: var(--theme-fontMono);
     font-size: 11px;
     line-height: 1.5;
   }
@@ -603,20 +637,37 @@ body {
     word-break: break-all;
   }
 
+  .process-detail-filechange__path {
+    min-width: 0;
+    font-family: var(--theme-fontMono);
+    font-size: 11px;
+    line-height: 1.5;
+    word-break: break-all;
+  }
+
   .process-detail-code {
     border: 1px solid color-mix(in srgb, var(--theme-codeBorder) 78%, transparent);
     border-radius: var(--theme-processDetailRadius);
     background: color-mix(in srgb, var(--theme-codeBg) 88%, var(--theme-appPanelStrong) 12%);
     overflow-x: auto;
+    overflow-y: hidden;
     padding: 0.7rem 0.8rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .process-detail-code--tight {
+    margin-top: 0.55rem;
   }
 
   .process-detail-code__line {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: 4ch max-content;
     gap: 0.75rem;
     align-items: start;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    width: max-content;
+    min-width: 100%;
+    font-family: var(--theme-fontMono);
     font-size: 11px;
     line-height: 1.65;
     white-space: pre;
@@ -624,11 +675,16 @@ body {
 
   .process-detail-code__gutter {
     user-select: none;
+    width: 4ch;
     text-align: right;
     opacity: 0.5;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
   }
 
   .process-detail-code__content {
+    display: block;
+    min-width: max-content;
     white-space: pre;
     word-break: normal;
   }
@@ -636,6 +692,149 @@ body {
   .process-detail-code__content--soft {
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  .process-detail-code__text {
+    margin: 0;
+    white-space: pre;
+    word-break: normal;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .process-detail-search__file {
+    border: 1px solid color-mix(in srgb, var(--theme-codeBorder) 76%, transparent);
+    border-radius: var(--theme-processDetailRadius);
+    background: color-mix(in srgb, var(--theme-codeBg) 84%, var(--theme-appPanelStrong) 16%);
+    overflow: hidden;
+  }
+
+  .process-detail-search__file-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+    background: color-mix(in srgb, var(--theme-appPanelMuted) 76%, transparent);
+  }
+
+  .process-detail-search__file-path {
+    min-width: 0;
+    flex: 1 1 16rem;
+    font-family: var(--theme-fontMono);
+    font-size: 11px;
+    line-height: 1.5;
+    word-break: break-all;
+  }
+
+  .process-detail-search__file-badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px dashed color-mix(in srgb, currentColor 16%, transparent);
+    border-radius: var(--theme-processDetailBadgeRadius);
+    padding: 0.05rem 0.45rem;
+    font-size: 10px;
+    line-height: 1.5;
+    opacity: 0.78;
+    white-space: nowrap;
+  }
+
+  .process-detail-search__matches {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.55rem 0.75rem 0.65rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .process-detail-build {
+    border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+    border-radius: var(--theme-processDetailRadius);
+    background: color-mix(in srgb, var(--theme-appPanelStrong) 86%, transparent);
+    padding: 0.7rem 0.75rem;
+  }
+
+  .process-detail-build__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.45rem;
+  }
+
+  .process-detail-build__title {
+    min-width: 0;
+    flex: 1 1 18rem;
+    font-size: 11px;
+    line-height: 1.6;
+    font-weight: 600;
+    word-break: break-word;
+  }
+
+  .process-detail-build__badges {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .process-detail-build__badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px dashed color-mix(in srgb, currentColor 16%, transparent);
+    border-radius: var(--theme-processDetailBadgeRadius);
+    padding: 0.05rem 0.45rem;
+    font-size: 10px;
+    line-height: 1.5;
+    opacity: 0.82;
+    white-space: nowrap;
+  }
+
+  .process-detail-build__path {
+    margin-top: 0.45rem;
+    font-family: var(--theme-fontMono);
+    font-size: 11px;
+    line-height: 1.55;
+    opacity: 0.78;
+    word-break: break-all;
+  }
+
+  @media (max-width: 640px) {
+    .process-detail-mobile-code-scroll {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      white-space: nowrap;
+      word-break: normal;
+      overflow-wrap: normal;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+
+    .process-detail-meta__item--long {
+      grid-template-columns: 1fr;
+      gap: 0.25rem;
+    }
+
+    .process-detail-meta__item--long .process-detail-meta__value {
+      white-space: nowrap;
+      word-break: normal;
+    }
+
+    .process-detail-search__file-header,
+    .process-detail-build__header,
+    .process-detail-filechange__item {
+      align-items: stretch;
+    }
+
+    .process-detail-filechange__item {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+    }
   }
 
   .process-detail-checklist__item {

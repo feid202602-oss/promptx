@@ -7,7 +7,7 @@ import {
 import { getCurrentLocale } from './useI18n.js'
 import { resolveAssetUrl } from '../lib/api.js'
 import { getAgentEngineLabel, normalizeAgentEngine } from '../lib/agentEngines.js'
-import { parseProcessDetailTextBlocks } from '../lib/processDetailBlocks.js'
+import { parseProcessDetailTextBlocks, sanitizeProcessDetailText } from '../lib/processDetailBlocks.js'
 
 const ACTIVE_TURN_STATUSES = new Set(['queued', 'starting', 'running', 'stopping'])
 
@@ -46,7 +46,7 @@ export function sortSessions(items = [], currentSessionId = '') {
 }
 
 function formatCommandOutput(output = '', maxLines = 24, maxChars = 2400) {
-  const normalized = String(output || '').replace(/\r\n/g, '\n').trim()
+  const normalized = sanitizeProcessDetailText(output).trim()
   if (!normalized) {
     return ''
   }
@@ -252,7 +252,9 @@ function parseToolCommand(command = '') {
     edit: ['edit', 'multiedit', 'write', 'patch', 'apply_patch', 'replace', 'create'],
   }
 
-  const category = Object.entries(aliasGroups).find(([, aliases]) => aliases.includes(normalizedTool))?.[0] || 'generic'
+  const category = hasNamedPrefix
+    ? (Object.entries(aliasGroups).find(([, aliases]) => aliases.includes(normalizedTool))?.[0] || 'generic')
+    : 'shell'
 
   return {
     raw,
@@ -278,7 +280,7 @@ function extractTodoEntriesFromCommandItem(item = {}, parsedCommand = null) {
 }
 
 function buildDetailBlocksFromText(detail = '', options = {}) {
-  return parseProcessDetailTextBlocks(detail, options)
+  return parseProcessDetailTextBlocks(sanitizeProcessDetailText(detail), options)
 }
 
 function buildWebSearchDetailBlocks(item = {}) {
@@ -354,17 +356,15 @@ function buildCommandDetailBlocks(item = {}, includeOutput = false, engine = 'co
   const parsed = parseToolCommand(item.command)
   const todoEntries = extractTodoEntriesFromCommandItem(item, parsed)
   const todoChecklistBlock = buildChecklistBlock(todoEntries)
+  const hasExplicitExitCode = typeof item.exit_code === 'number'
+  const isSuccessful = hasExplicitExitCode ? item.exit_code === 0 : item.status === 'completed'
   const metaBlock = createMetaBlock([
     parsed.toolName ? { label: text('工具', 'Tool'), value: parsed.toolName } : null,
-    todoChecklistBlock
+    todoChecklistBlock || parsed.category !== 'shell'
       ? null
-      : (
-          parsed.subject
-            ? { label: parsed.category === 'shell' ? text('命令', 'Command') : text('目标', 'Target'), value: parsed.subject }
-            : (item.command ? { label: text('命令', 'Command'), value: item.command } : null)
-        ),
+      : (parsed.subject ? { label: text('命令', 'Command'), value: parsed.subject } : (item.command ? { label: text('命令', 'Command'), value: item.command } : null)),
     engine && engine !== 'codex' ? { label: text('引擎', 'Engine'), value: getAgentEngineLabel(engine) } : null,
-    typeof item.exit_code === 'number' ? { label: text('退出码', 'Exit code'), value: String(item.exit_code) } : null,
+    hasExplicitExitCode && !isSuccessful ? { label: text('退出码', 'Exit code'), value: String(item.exit_code) } : null,
   ])
 
   if (metaBlock) {
@@ -1010,12 +1010,12 @@ const CODEX_ISSUE_PATTERNS = [
 ]
 
 export function classifyCodexIssue(message = '', engine = 'codex') {
-  const text = String(message || '').trim()
-  if (!text) {
+  const normalizedText = sanitizeProcessDetailText(message).trim()
+  if (!normalizedText) {
     return null
   }
 
-  const matched = CODEX_ISSUE_PATTERNS.find((issue) => issue.patterns.some((pattern) => pattern.test(text)))
+  const matched = CODEX_ISSUE_PATTERNS.find((issue) => issue.patterns.some((pattern) => pattern.test(normalizedText)))
   if (!matched) {
     return null
   }
@@ -1024,12 +1024,12 @@ export function classifyCodexIssue(message = '', engine = 'codex') {
     type: matched.type,
     title: typeof matched.title === 'function' ? matched.title(engine) : matched.title,
     summary: typeof matched.summary === 'function' ? matched.summary(engine) : matched.summary,
-    rawMessage: text,
+    rawMessage: normalizedText,
   }
 }
 
 export function formatCodexIssueMessage(message = '', engine = 'codex') {
-  const rawText = String(message || '').trim()
+  const rawText = sanitizeProcessDetailText(message).trim()
   if (!rawText) {
     return ''
   }
@@ -1048,7 +1048,7 @@ function extractTextFromUnknownError(input, depth = 0) {
   }
 
   if (typeof input === 'string') {
-    return input.trim()
+    return sanitizeProcessDetailText(input).trim()
   }
 
   if (typeof input !== 'object') {
@@ -1286,7 +1286,9 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
     if (item.type === AGENT_RUN_ITEM_TYPES.COMMAND_EXECUTION) {
       const commandMeta = buildCommandGroupingMeta(item)
       if (commandMeta.groupType === 'todo') {
-        const success = item.exit_code === 0 || item.status === 'completed'
+        const success = typeof item.exit_code === 'number'
+          ? item.exit_code === 0
+          : item.status === 'completed'
         return {
           kind: success ? 'todo' : 'error',
           title: success
@@ -1299,7 +1301,9 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
         }
       }
 
-      const success = item.exit_code === 0 || item.status === 'completed'
+      const success = typeof item.exit_code === 'number'
+        ? item.exit_code === 0
+        : item.status === 'completed'
       return {
         kind: success ? 'command' : 'error',
         title: success

@@ -118,6 +118,161 @@ test('formatCodexEvent parses OpenCode grep output into code snippets', () => {
   assert.equal(event.detailBlocks?.[1]?.lines?.[0]?.number, '473')
 })
 
+test('formatCodexEvent parses ripgrep-style output into grouped search results', () => {
+  const event = formatCodexEvent({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      status: 'completed',
+      command: 'Bash: rg -n "relay" apps/web/src apps/server/src',
+      aggregated_output: [
+        'apps/web/src/lib/i18n.js:126:      relay: {',
+        "apps/web/src/lib/i18n.js:132:        relayUrl: 'Relay 地址',",
+        "apps/server/src/relayServer.js:264:  <form class=\"card\" action=\"/relay/admin/login\" method=\"post\">",
+      ].join('\n'),
+    },
+  }, 'Claude Code', 'claude-code')
+
+  assert.equal(event.detailBlocks?.[0]?.type, 'meta')
+  assert.equal(event.detailBlocks?.[1]?.type, 'search_results')
+  assert.equal(event.detailBlocks?.[1]?.fileCount, 2)
+  assert.equal(event.detailBlocks?.[1]?.files?.[0]?.path, 'apps/web/src/lib/i18n.js')
+  assert.equal(event.detailBlocks?.[1]?.files?.[0]?.matches?.[0]?.number, '126')
+})
+
+test('formatCodexEvent strips ansi sequences from command output and parses build failure blocks', () => {
+  const event = formatCodexEvent({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      status: 'completed',
+      command: 'vite build',
+      exit_code: 1,
+      aggregated_output: [
+        '\u001b[31mBuild failed with 1 error:\u001b[0m',
+        '',
+        '[MISSING_EXPORT] Error:',
+        '"Sonner" is not exported by "web/src/components/ui/sonner/index.js".',
+        '╭─[ web/src/App.vue:13:10 ]',
+        '│',
+        "13 │ import { Sonner } from '@/components/ui/sonner'",
+      ].join('\n'),
+    },
+  }, 'Claude Code', 'claude-code')
+
+  assert.equal(event.kind, 'error')
+  assert.match(event.detail, /vite build/)
+  assert.doesNotMatch(event.detail, /\u001b\[/)
+  assert.equal(event.detailBlocks?.[1]?.type, 'build_error')
+  assert.equal(event.detailBlocks?.[1]?.errorCode, 'MISSING_EXPORT')
+  assert.equal(event.detailBlocks?.[1]?.location?.line, '13')
+})
+
+test('formatCodexIssueMessage strips ansi sequences from stderr text', () => {
+  assert.equal(formatCodexIssueMessage('\u001b[31mBuild failed\u001b[0m'), 'Build failed')
+})
+
+test('formatCodexEvent treats raw shell commands as command meta', () => {
+  const event = formatCodexEvent({
+    type: 'item.started',
+    item: {
+      type: 'command_execution',
+      status: 'in_progress',
+      command: '/bin/zsh -lc "pnpm build"',
+    },
+  }, 'Codex', 'codex')
+
+  assert.equal(event.detailBlocks?.[0]?.type, 'meta')
+  assert.deepEqual(event.detailBlocks?.[0]?.items, [
+    { label: '命令', value: '/bin/zsh -lc "pnpm build"' },
+  ])
+})
+
+test('formatCodexEvent parses git status output as code text', () => {
+  const event = formatCodexEvent({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      status: 'completed',
+      command: '/bin/zsh -lc "git status --short"',
+      aggregated_output: [
+        'M apps/web/src/components/ProcessDetailRenderer.vue',
+        'M apps/web/src/composables/codexSessionPanelTurns.js',
+      ].join('\n'),
+    },
+  }, 'Codex', 'codex')
+
+  assert.equal(event.detailBlocks?.[1]?.type, 'code_text')
+  assert.match(event.detailBlocks?.[1]?.text, /ProcessDetailRenderer/)
+})
+
+test('formatCodexEvent parses workspace build logs as code text', () => {
+  const event = formatCodexEvent({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      status: 'completed',
+      command: '/bin/zsh -lc "pnpm build"',
+      aggregated_output: [
+        '@muyichengshayu/promptx@0.1.30 build',
+        '/Users/bravf/code/promptx',
+        'pnpm -r build',
+        '',
+        'Scope: 5 of 6 workspace projects',
+        'apps/web build$ vite build',
+        'apps/web build: vite v5.4.21 building for production...',
+      ].join('\n'),
+    },
+  }, 'Codex', 'codex')
+
+  assert.equal(event.detailBlocks?.[1]?.type, 'code_text')
+  assert.match(event.detailBlocks?.[1]?.text, /workspace projects/)
+})
+
+test('formatCodexEvent parses git diff output as code text instead of markdown', () => {
+  const event = formatCodexEvent({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      status: 'completed',
+      command: 'bash: git diff',
+      aggregated_output: [
+        'diff --git a/apps/web/src/components/CodexSessionPanel.vue b/apps/web/src/components/CodexSessionPanel.vue',
+        'index 32ba088..78ca751 100644',
+        '--- a/apps/web/src/components/CodexSessionPanel.vue',
+        '+++ b/apps/web/src/components/CodexSessionPanel.vue',
+        '@@ -391,7 +391,7 @@ defineExpose({',
+        '-                    class=\"old\"',
+        '+                    class=\"new\"',
+      ].join('\n'),
+    },
+  }, 'OpenCode', 'opencode')
+
+  assert.equal(event.detailBlocks?.[1]?.type, 'code_text')
+  assert.doesNotMatch(event.detailBlocks?.[1]?.text || '', /^```/)
+})
+
+test('formatCodexEvent splits mixed description and terminal output into separate blocks', () => {
+  const event = formatCodexEvent({
+    type: 'item.completed',
+    item: {
+      type: 'command_execution',
+      status: 'completed',
+      command: '/bin/zsh -lc "pnpm build"',
+      aggregated_output: [
+        '准备开始构建，先看一下当前输出。',
+        '',
+        '/bin/zsh -lc "pnpm build"',
+        'apps/web build$ vite build',
+        'apps/web build: transforming...',
+      ].join('\n'),
+    },
+  }, 'Codex', 'codex')
+
+  assert.equal(event.detailBlocks?.[1]?.type, 'text')
+  assert.equal(event.detailBlocks?.[2]?.type, 'code_text')
+})
+
 test('formatCodexEvent parses OpenCode todowrite output into checklist', () => {
   const event = formatCodexEvent({
     type: 'item.completed',
