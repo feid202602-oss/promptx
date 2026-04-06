@@ -9,7 +9,6 @@ import {
   Eye,
   EyeOff,
   FileDiff,
-  Image as ImageIcon,
   LoaderCircle,
   PencilLine,
 } from 'lucide-vue-next'
@@ -272,7 +271,7 @@ function shouldShowDeferredEventHint(turn) {
 }
 
 function getEventCardClass(item = {}) {
-  return 'border border-[color:color-mix(in_srgb,var(--theme-borderDefault)_32%,transparent)] bg-[var(--theme-appPanelStrong)]'
+  return 'bg-[var(--theme-appPanelStrong)]'
 }
 
 watch(
@@ -392,9 +391,9 @@ defineExpose({
 
         <div v-for="turn in turns" :key="turn.id" class="space-y-3">
           <div class="flex justify-end">
-            <div class="transcript-card transcript-card--prompt min-w-0 w-full max-w-[92%] rounded-sm bg-[var(--theme-promptBg)] px-4 py-3 font-mono text-sm text-[var(--theme-promptText)]">
+            <div class="transcript-card transcript-card--prompt min-w-0 w-full rounded-sm bg-[var(--theme-promptBg)] px-4 py-3 font-mono text-sm text-[var(--theme-promptText)]">
               <div class="flex items-center justify-between gap-3 text-xs opacity-75">
-                <span>{{ t('sessionPanel.promptTitle') }}</span>
+                <span class="font-semibold">{{ t('sessionPanel.promptTitle') }}</span>
                 <div class="flex items-center gap-2">
                   <button
                     v-if="canCollapsePrompt(turn)"
@@ -420,28 +419,18 @@ defineExpose({
                       v-if="item.type === 'text' || item.type === 'imported_text'"
                       class="whitespace-pre-wrap break-words leading-7"
                     >{{ item.content }}</pre>
-                    <div
+                    <button
                       v-else
-                      class="transcript-card__media overflow-hidden rounded-sm border border-[color:color-mix(in_srgb,var(--theme-promptBorder)_45%,transparent)] bg-white/40"
+                      type="button"
+                      class="inline-flex cursor-zoom-in justify-center rounded-sm"
+                      @click="openPromptImage(item.content)"
                     >
-                      <div class="flex items-center gap-2 border-b border-[color:color-mix(in_srgb,var(--theme-promptBorder)_35%,transparent)] px-3 py-2 text-xs opacity-80">
-                        <ImageIcon class="h-3.5 w-3.5" />
-                        <span>{{ t('sessionPanel.promptImage') }}</span>
-                      </div>
-                      <div class="px-3 py-3">
-                        <button
-                          type="button"
-                          class="inline-flex cursor-zoom-in justify-center"
-                          @click="openPromptImage(item.content)"
-                        >
-                          <img
-                            :src="item.content"
-                            :alt="t('sessionPanel.promptImageAlt')"
-                            class="max-h-52 w-auto max-w-full rounded-sm object-contain"
-                          />
-                        </button>
-                      </div>
-                    </div>
+                      <img
+                        :src="item.content"
+                        :alt="t('sessionPanel.promptImageAlt')"
+                        class="max-h-52 w-auto max-w-full rounded-sm object-contain shadow-sm"
+                      />
+                    </button>
                   </template>
                 </div>
                 <pre
@@ -458,9 +447,9 @@ defineExpose({
           </div>
 
           <div v-if="showProcessLogs" class="flex justify-start">
-            <div class="transcript-card transcript-card--process min-w-0 w-full max-w-[94%] rounded-sm px-4 py-3 font-mono" :class="getProcessCardClass(turn)">
+            <div class="transcript-card transcript-card--process min-w-0 w-full rounded-sm px-4 py-3 font-mono" :class="getProcessCardClass(turn)">
               <div class="flex items-center justify-between gap-3 text-xs">
-                <span>{{ t('sessionPanel.processTitle') }}</span>
+                <span class="font-semibold">{{ t('sessionPanel.processTitle') }}</span>
                 <div class="flex items-center gap-2">
                   <button
                     v-if="shouldShowEventToggle(turn)"
@@ -545,23 +534,26 @@ defineExpose({
 
           <div v-if="shouldShowResponse(turn)" class="flex justify-start">
             <div
-              class="transcript-card transcript-card--response min-w-0 w-full max-w-[92%] rounded-sm px-4 py-3 text-sm leading-7"
+              class="transcript-card transcript-card--response min-w-0 w-full rounded-sm px-4 py-3 text-sm leading-7"
               :class="turn.errorMessage
                 ? 'bg-[var(--theme-dangerSoft)] text-[var(--theme-dangerText)]'
                 : 'bg-[var(--theme-responseBg)] text-[var(--theme-responseText)]'"
             >
               <div class="flex items-center justify-between gap-3 text-xs text-current/80">
-                <span>{{ turn.errorMessage ? t('sessionPanel.errorSuffix', { agent: getTurnAgentLabel(turn) }) : t('sessionPanel.responseSuffix', { agent: getTurnAgentLabel(turn) }) }}</span>
-                <button
-                  v-if="canCollapseResponse(turn)"
-                  type="button"
-                  class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
-                  @click="toggleResponse(turn)"
-                >
-                  <ChevronDown v-if="isResponseCollapsed(turn)" class="h-3 w-3" />
-                  <ChevronUp v-else class="h-3 w-3" />
-                  <span>{{ isResponseCollapsed(turn) ? t('sessionPanel.expand') : t('sessionPanel.collapse') }}</span>
-                </button>
+                <span class="font-semibold">{{ turn.errorMessage ? t('sessionPanel.errorSuffix', { agent: getTurnAgentLabel(turn) }) : t('sessionPanel.responseSuffix', { agent: getTurnAgentLabel(turn) }) }}</span>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-if="canCollapseResponse(turn)"
+                    type="button"
+                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    @click="toggleResponse(turn)"
+                  >
+                    <ChevronDown v-if="isResponseCollapsed(turn)" class="h-3 w-3" />
+                    <ChevronUp v-else class="h-3 w-3" />
+                    <span>{{ isResponseCollapsed(turn) ? t('sessionPanel.expand') : t('sessionPanel.collapse') }}</span>
+                  </button>
+                  <span>{{ formatTurnTime(turn.finishedAt || turn.startedAt) }}</span>
+                </div>
               </div>
               <div class="relative mt-2">
                 <div

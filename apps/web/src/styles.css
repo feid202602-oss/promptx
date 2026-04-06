@@ -843,6 +843,11 @@ body {
     color: var(--theme-textMuted);
   }
 
+  .transcript-card {
+    @apply border border-dashed;
+    border-color: color-mix(in srgb, var(--theme-borderDefault) 78%, transparent);
+  }
+
   .theme-popover {
     border-color: var(--theme-borderDefault);
     background: var(--theme-appPanelStrong);
