@@ -1,18 +1,47 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { createCanvas, loadImage } from '@napi-rs/canvas'
+import { loadImage } from '@napi-rs/canvas'
 import { nanoid } from 'nanoid'
 import { createApiError } from './apiErrors.js'
 
-function scaleImageToFit(width = 0, height = 0, maxWidth = 1600, maxHeight = 1600) {
-  const safeWidth = Math.max(1, Number(width) || 0)
-  const safeHeight = Math.max(1, Number(height) || 0)
-  const ratio = Math.min(maxWidth / safeWidth, maxHeight / safeHeight)
+const IMAGE_EXTENSION_BY_MIME_TYPE = {
+  'image/avif': '.avif',
+  'image/bmp': '.bmp',
+  'image/gif': '.gif',
+  'image/heic': '.heic',
+  'image/heif': '.heif',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/svg+xml': '.svg',
+  'image/tiff': '.tiff',
+  'image/webp': '.webp',
+  'image/x-icon': '.ico',
+}
 
-  return {
-    width: Math.max(1, Math.round(safeWidth * ratio)),
-    height: Math.max(1, Math.round(safeHeight * ratio)),
+function resolveImageExtension(fileName = '', mimeType = '') {
+  const normalizedName = String(fileName || '').trim()
+  const extension = path.extname(normalizedName).toLowerCase()
+  if (/^\.[a-z0-9]{1,10}$/.test(extension)) {
+    return extension
+  }
+
+  return IMAGE_EXTENSION_BY_MIME_TYPE[String(mimeType || '').toLowerCase()] || ''
+}
+
+async function readImageDimensions(filePath = '') {
+  try {
+    const source = await loadImage(filePath)
+    return {
+      width: Number.isFinite(Number(source.width)) ? Number(source.width) : null,
+      height: Number.isFinite(Number(source.height)) ? Number(source.height) : null,
+    }
+  } catch {
+    return {
+      width: null,
+      height: null,
+    }
   }
 }
 
@@ -42,24 +71,20 @@ function registerAssetRoutes(app, options = {}) {
     try {
       await pipeline(part.file, fs.createWriteStream(tempPath))
 
-      const source = await loadImage(tempPath)
-      const scaled = scaleImageToFit(source.width, source.height)
-      const canvas = createCanvas(scaled.width, scaled.height)
-      const context = canvas.getContext('2d')
-      context.drawImage(source, 0, 0, scaled.width, scaled.height)
-
-      const outputName = `${nanoid(16)}.jpg`
+      const mimeType = String(part.mimetype || '').toLowerCase().trim()
+      const outputExt = resolveImageExtension(normalizeUploadFileName(part.filename, 'image'), mimeType)
+      const outputName = `${nanoid(16)}${outputExt}`
       outputPath = path.join(uploadsDir, outputName)
-      const outputBuffer = canvas.toBuffer('image/jpeg', 82)
-      fs.writeFileSync(outputPath, outputBuffer)
+      fs.copyFileSync(tempPath, outputPath)
 
       const stats = fs.statSync(outputPath)
+      const dimensions = await readImageDimensions(outputPath)
       completed = true
       return reply.code(201).send({
         url: `/uploads/${outputName}`,
-        width: scaled.width,
-        height: scaled.height,
-        mimeType: 'image/jpeg',
+        width: dimensions.width,
+        height: dimensions.height,
+        mimeType,
         size: stats.size,
       })
     } finally {

@@ -32,6 +32,15 @@ function createTestPngBuffer(width = 2000, height = 1000) {
   return canvas.toBuffer('image/png')
 }
 
+function createTestSvgBuffer(width = 120, height = 80) {
+  return Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`
+    + '<rect width="100%" height="100%" fill="#0ea5e9"/>'
+    + '</svg>',
+    'utf8'
+  )
+}
+
 test('asset routes reject missing upload file', async () => {
   const app = Fastify()
   await app.register(multipart)
@@ -62,7 +71,7 @@ test('asset routes reject missing upload file', async () => {
   }
 })
 
-test('asset routes resize uploaded images and convert them to jpeg', async () => {
+test('asset routes keep uploaded png format and original bytes', async () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-asset-routes-'))
   const uploadsDir = path.join(rootDir, 'uploads')
   const tmpDir = path.join(rootDir, 'tmp')
@@ -82,7 +91,8 @@ test('asset routes resize uploaded images and convert them to jpeg', async () =>
   await app.ready()
 
   try {
-    const payload = createMultipartBody('demo.png', 'image/png', createTestPngBuffer())
+    const sourceBuffer = createTestPngBuffer()
+    const payload = createMultipartBody('demo.png', 'image/png', sourceBuffer)
     const response = await app.inject({
       method: 'POST',
       url: '/api/uploads',
@@ -94,17 +104,63 @@ test('asset routes resize uploaded images and convert them to jpeg', async () =>
 
     assert.equal(response.statusCode, 201)
     const body = response.json()
-    assert.match(body.url || '', /^\/uploads\/.+\.jpg$/)
-    assert.equal(body.width, 1600)
-    assert.equal(body.height, 800)
-    assert.equal(body.mimeType, 'image/jpeg')
+    assert.match(body.url || '', /^\/uploads\/.+\.png$/)
+    assert.equal(body.width, 2000)
+    assert.equal(body.height, 1000)
+    assert.equal(body.mimeType, 'image/png')
     assert.equal(typeof body.size, 'number')
     assert.ok(body.size > 0)
 
     const outputPath = path.join(uploadsDir, path.basename(body.url))
     assert.equal(fs.existsSync(outputPath), true)
-    const outputHeader = fs.readFileSync(outputPath).subarray(0, 2)
-    assert.deepEqual([...outputHeader], [0xff, 0xd8])
+    assert.deepEqual(fs.readFileSync(outputPath), sourceBuffer)
+  } finally {
+    await app.close()
+    fs.rmSync(rootDir, { recursive: true, force: true })
+  }
+})
+
+test('asset routes keep uploaded svg format and original bytes', async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-asset-routes-svg-'))
+  const uploadsDir = path.join(rootDir, 'uploads')
+  const tmpDir = path.join(rootDir, 'tmp')
+  fs.mkdirSync(uploadsDir, { recursive: true })
+  fs.mkdirSync(tmpDir, { recursive: true })
+
+  const app = Fastify()
+  await app.register(multipart)
+  registerAssetRoutes(app, {
+    createTempFilePath: (_dir, fileName) => path.join(tmpDir, fileName),
+    importPdfBlocks: async () => ({ blocks: [] }),
+    normalizeUploadFileName: (name) => name,
+    removeAssetFiles: () => {},
+    tmpDir,
+    uploadsDir,
+  })
+  await app.ready()
+
+  try {
+    const sourceBuffer = createTestSvgBuffer()
+    const payload = createMultipartBody('logo.svg', 'image/svg+xml', sourceBuffer)
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: {
+        'content-type': `multipart/form-data; boundary=${payload.boundary}`,
+      },
+      payload: payload.body,
+    })
+
+    assert.equal(response.statusCode, 201)
+    const body = response.json()
+    assert.match(body.url || '', /^\/uploads\/.+\.svg$/)
+    assert.equal(body.mimeType, 'image/svg+xml')
+    assert.equal(typeof body.size, 'number')
+    assert.ok(body.size > 0)
+
+    const outputPath = path.join(uploadsDir, path.basename(body.url))
+    assert.equal(fs.existsSync(outputPath), true)
+    assert.deepEqual(fs.readFileSync(outputPath), sourceBuffer)
   } finally {
     await app.close()
     fs.rmSync(rootDir, { recursive: true, force: true })
