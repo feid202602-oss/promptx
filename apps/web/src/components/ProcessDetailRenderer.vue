@@ -262,7 +262,7 @@ function hasStructuredSubAgentMessage(item = {}) {
               <Check v-if="getChecklistItemStatus(item) === 'completed'" class="h-3 w-3" />
               <span v-else-if="getChecklistItemStatus(item) === 'in_progress'" class="process-detail-checklist__dot" />
             </span>
-            <span :class="getChecklistItemStatus(item) === 'completed' ? 'line-through opacity-65' : ''">{{ item.text }}</span>
+            <span :class="getChecklistItemStatus(item) === 'completed' ? 'line-through' : ''">{{ item.text }}</span>
           </div>
         </div>
         <div v-if="block.totalCount" class="process-detail-footnote">
@@ -325,7 +325,7 @@ function hasStructuredSubAgentMessage(item = {}) {
                 </span>
                 <span
                   v-if="getSubAgentInlinePreview(item)"
-                  class="process-detail-subagent__preview theme-muted-text min-w-0 flex-1"
+                  class="process-detail-subagent__preview min-w-0 flex-1"
                   :title="getSubAgentInlinePreview(item)"
                 >
                   {{ getSubAgentInlinePreview(item) }}
@@ -334,7 +334,7 @@ function hasStructuredSubAgentMessage(item = {}) {
               <button
                 v-if="hasSubAgentMessage(item)"
                 type="button"
-                class="theme-muted-text shrink-0 text-[11px] underline decoration-dashed underline-offset-2"
+                class="shrink-0 text-[11px] underline decoration-dashed underline-offset-2"
                 @click="toggleSubAgentMessage(blockIndex, item, itemIndex)"
               >
                 {{ isSubAgentMessageExpanded(blockIndex, item, itemIndex) ? t('common.collapse') : t('common.expand') }}
@@ -345,7 +345,7 @@ function hasStructuredSubAgentMessage(item = {}) {
             </div>
             <div
               v-if="hasSubAgentMessage(item) && isSubAgentMessageExpanded(blockIndex, item, itemIndex)"
-              class="mt-2 border-l border-dashed border-[color:color-mix(in_srgb,currentColor_14%,transparent)] pl-3"
+              class="mt-2 border-l border-dashed border-[var(--theme-borderDefault)] pl-3"
             >
               <ProcessDetailRenderer
                 v-if="hasStructuredSubAgentMessage(item)"
@@ -354,7 +354,7 @@ function hasStructuredSubAgentMessage(item = {}) {
               />
               <pre
                 v-else
-                class="theme-muted-text whitespace-pre-wrap break-words text-xs leading-5"
+                class="whitespace-pre-wrap break-words text-xs leading-5"
               >{{ item.message }}</pre>
             </div>
           </div>

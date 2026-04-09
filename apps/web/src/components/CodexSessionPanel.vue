@@ -398,7 +398,7 @@ defineExpose({
                   <button
                     v-if="canCollapsePrompt(turn)"
                     type="button"
-                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-[var(--theme-appPanelStrong)]"
                     @click="togglePrompt(turn)"
                   >
                     <ChevronDown v-if="isPromptCollapsed(turn)" class="h-3 w-3" />
@@ -454,7 +454,7 @@ defineExpose({
                   <button
                     v-if="shouldShowEventToggle(turn)"
                     type="button"
-                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-[var(--theme-appPanelStrong)]"
                     :disabled="turn.eventsLoading"
                     @click="toggleTurnEvents(turn)"
                   >
@@ -466,7 +466,7 @@ defineExpose({
                   <span>{{ getProcessStatus(turn) }}</span>
                 </div>
               </div>
-              <div v-if="shouldShowEventLoading(turn)" class="transcript-card__subtle mt-3 rounded-sm bg-white/10 px-3 py-2 text-xs text-current/70">
+              <div v-if="shouldShowEventLoading(turn)" class="transcript-card__subtle mt-3 rounded-sm bg-[var(--theme-appPanelStrong)] px-3 py-2 text-xs text-current">
                 {{ t('sessionPanel.loadingEvents') }}
               </div>
               <div v-else-if="shouldShowLoadedEvents(turn)" class="mt-3 space-y-3">
@@ -488,32 +488,32 @@ defineExpose({
               </div>
               <div
                 v-else-if="shouldShowCollapsedEventHint(turn) || shouldShowDeferredEventHint(turn)"
-                class="transcript-card__subtle mt-3 rounded-sm bg-white/10 px-3 py-2 text-xs text-current/70"
+                class="transcript-card__subtle mt-3 rounded-sm bg-[var(--theme-appPanelStrong)] px-3 py-2 text-xs text-current"
               >
                 {{ turn.eventsLoaded
                   ? t('sessionPanel.hiddenEventsLoaded', { count: getTurnVisibleEventCount(turn) })
                   : t('sessionPanel.hiddenEventsLoadLater', { count: getTurnVisibleEventCount(turn) }) }}
               </div>
-              <p v-else class="mt-3 text-xs text-current/80">{{ ['queued', 'starting', 'running', 'stopping'].includes(turn.status) ? t('sessionPanel.waitingEvents', { agent: getTurnAgentLabel(turn) }) : t('sessionPanel.noEvents') }}</p>
+              <p v-else class="mt-3 text-xs text-current">{{ ['queued', 'starting', 'running', 'stopping'].includes(turn.status) ? t('sessionPanel.waitingEvents', { agent: getTurnAgentLabel(turn) }) : t('sessionPanel.noEvents') }}</p>
               <div
                 v-if="hasTurnSummary(turn)"
-                class="transcript-card__subtle mt-3 rounded-sm bg-white/15 px-3 py-2 text-xs text-current/80"
+                class="transcript-card__subtle mt-3 rounded-sm bg-[var(--theme-appPanelStrong)] px-3 py-2 text-xs text-current"
               >
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 flex-1">
                 <div v-if="getTurnSummaryStatus(turn)" class="leading-5">
                   {{ getTurnSummaryStatus(turn) }}
                 </div>
-                <div v-if="getTurnSummaryDetail(turn)" class="mt-1 whitespace-pre-wrap break-words leading-5 opacity-75">
+                <div v-if="getTurnSummaryDetail(turn)" class="mt-1 whitespace-pre-wrap break-words leading-5">
                   {{ getTurnSummaryDetail(turn) }}
                 </div>
                 <div v-if="getDisplayTurnSummaryItems(turn).length" class="mt-2 flex flex-wrap gap-2">
                   <span
                     v-for="item in getDisplayTurnSummaryItems(turn)"
                     :key="item.key"
-                    class="transcript-card__pill inline-flex items-center gap-1 rounded-sm border border-dashed border-current/[0.12] px-2 py-1"
+                    class="transcript-card__pill inline-flex items-center gap-1 rounded-sm border border-dashed border-[var(--theme-borderDefault)] px-2 py-1"
                   >
-                    <span class="opacity-75">{{ item.label }}</span>
+                    <span>{{ item.label }}</span>
                     <span class="font-medium">{{ item.value }}</span>
                   </span>
                 </div>
@@ -521,7 +521,7 @@ defineExpose({
                   <button
                     v-if="diffSupported && turn.runId"
                     type="button"
-                    class="transcript-card__toggle shrink-0 inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle shrink-0 inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-[var(--theme-appPanelStrong)]"
                     @click="openTurnDiff(turn)"
                   >
                     <FileDiff class="h-3 w-3" />
@@ -545,7 +545,7 @@ defineExpose({
                   <button
                     v-if="canCollapseResponse(turn)"
                     type="button"
-                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm px-2 py-1 text-[11px] transition hover:bg-[var(--theme-appPanelStrong)]"
                     @click="toggleResponse(turn)"
                   >
                     <ChevronDown v-if="isResponseCollapsed(turn)" class="h-3 w-3" />

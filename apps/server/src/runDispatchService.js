@@ -4,6 +4,84 @@ import {
 } from './runnerDispatch.js'
 import { createApiError } from './apiErrors.js'
 
+function normalizeBaseUrl(value = '') {
+  return String(value || '').trim().replace(/\/+$/, '')
+}
+
+function normalizeUploadPath(value = '') {
+  const text = String(value || '').trim()
+  if (!text) {
+    return ''
+  }
+
+  if (text.startsWith('/')) {
+    const [pathname = '', search = ''] = text.split('?')
+    return pathname.startsWith('/uploads/') ? `${pathname}${search ? `?${search}` : ''}` : ''
+  }
+
+  try {
+    const url = new URL(text)
+    return url.pathname.startsWith('/uploads/') ? `${url.pathname}${url.search || ''}` : ''
+  } catch {
+    return ''
+  }
+}
+
+function buildLocalUploadUrl(value = '', localServerBaseUrl = '') {
+  const normalizedBaseUrl = normalizeBaseUrl(localServerBaseUrl)
+  const uploadPath = normalizeUploadPath(value)
+  if (!normalizedBaseUrl || !uploadPath) {
+    return String(value || '').trim()
+  }
+
+  try {
+    return new URL(uploadPath, `${normalizedBaseUrl}/`).toString()
+  } catch {
+    return `${normalizedBaseUrl}${uploadPath.startsWith('/') ? '' : '/'}${uploadPath}`
+  }
+}
+
+function rewritePromptUploadsToLocal(prompt = '', options = {}) {
+  const text = String(prompt || '').trim()
+  const localServerBaseUrl = String(options.localServerBaseUrl || '').trim()
+  if (!text || !localServerBaseUrl) {
+    return text
+  }
+
+  const candidates = text.match(/https?:\/\/[^\s"'`<>]+/g) || []
+
+  let nextPrompt = text
+  candidates.forEach((candidate) => {
+    const localUrl = buildLocalUploadUrl(candidate, localServerBaseUrl)
+    if (normalizeUploadPath(candidate) && localUrl && candidate !== localUrl) {
+      nextPrompt = nextPrompt.split(candidate).join(localUrl)
+    }
+  })
+  return nextPrompt
+}
+
+function buildRunnerPromptPayload(session = {}, input = {}, options = {}) {
+  const prompt = String(input.prompt || '').trim()
+  const promptBlocks = Array.isArray(input.promptBlocks) ? input.promptBlocks : []
+
+  const nextPromptBlocks = promptBlocks.map((block) => {
+    if (String(block?.type || '').trim() !== 'image') {
+      return block
+    }
+
+    return {
+      ...block,
+      meta: block?.meta ? { ...block.meta } : {},
+      content: buildLocalUploadUrl(block?.content, options.localServerBaseUrl),
+    }
+  })
+
+  return {
+    prompt: rewritePromptUploadsToLocal(prompt, options),
+    promptBlocks: nextPromptBlocks,
+  }
+}
+
 export function createRunDispatchService(options = {}) {
   const runnerClient = options.runnerClient
   const logger = options.logger || console
@@ -16,6 +94,9 @@ export function createRunDispatchService(options = {}) {
   const updateTaskCodexSession = options.updateTaskCodexSession || (() => null)
   const decorateCodexSession = options.decorateCodexSession || ((session) => session)
   const broadcastServerEvent = options.broadcastServerEvent || (() => {})
+  const localServerBaseUrl = String(options.localServerBaseUrl || '').trim()
+  const publicServerBaseUrl = String(options.publicServerBaseUrl || '').trim()
+  const relayUrl = String(options.relayUrl || '').trim()
 
   async function startTaskRunForTask(payload = {}) {
     const normalizedTaskSlug = String(payload.taskSlug || '').trim()
@@ -62,13 +143,22 @@ export function createRunDispatchService(options = {}) {
     let runnerDispatchPending = false
 
     try {
+      const runnerPromptPayload = buildRunnerPromptPayload(session, {
+        prompt: normalizedPrompt,
+        promptBlocks,
+      }, {
+        localServerBaseUrl,
+        publicServerBaseUrl,
+        relayUrl,
+      })
+
       const runnerPayload = await runnerClient.startRun({
         runId: runRecord.id,
         taskSlug: normalizedTaskSlug,
         sessionId: normalizedSessionId,
         engine: session.engine,
-        prompt: normalizedPrompt,
-        promptBlocks,
+        prompt: runnerPromptPayload.prompt,
+        promptBlocks: runnerPromptPayload.promptBlocks,
         cwd: session.cwd,
         title: session.title,
         codexThreadId: session.codexThreadId,
