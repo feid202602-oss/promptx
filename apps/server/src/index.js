@@ -22,10 +22,8 @@ import {
   updateTask,
 } from './repository.js'
 import {
-  getWorkspaceGitDiffStatusSummaryByCwd,
-} from './gitDiff.js'
-import {
   getGitDiffWorkerDiagnostics,
+  getWorkspaceGitDiffStatusSummaryInSubprocess,
   getTaskGitDiffReviewInSubprocess,
 } from './gitDiffClient.js'
 import {
@@ -354,8 +352,9 @@ registerRealtimeRoutes(app, {
 
 const taskWorkspaceDiffSummaryService = createTaskWorkspaceDiffSummaryService({
   getPromptxCodexSessionById,
-  getWorkspaceGitDiffStatusSummaryByCwd,
+  getWorkspaceGitDiffStatusSummaryByCwd: getWorkspaceGitDiffStatusSummaryInSubprocess,
   listTasks,
+  logger: app.log,
 })
 
 const workspaceSuggestionService = createWorkspaceSuggestionService({

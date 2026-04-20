@@ -215,14 +215,14 @@ export function stopGitDiffWorker() {
   }
 }
 
-export function getTaskGitDiffReviewInSubprocess(taskSlug = '', options = {}) {
+function requestGitDiffWorker(action = '', payload = {}, options = {}) {
   const timeoutMs = Math.max(1, Number(options.timeoutMs) || DEFAULT_TIMEOUT_MS)
   const requestId = String(nextRequestId++)
   const requestMeta = {
     requestId,
-    taskSlug: String(taskSlug || '').trim(),
+    taskSlug: String(payload.taskSlug || '').trim(),
     scope: String(options.scope || '').trim(),
-    filePath: String(options.filePath || '').trim(),
+    filePath: String(payload.filePath || options.filePath || '').trim(),
     startedAt: new Date().toISOString(),
   }
   const child = ensureGitDiffWorker()
@@ -271,9 +271,8 @@ export function getTaskGitDiffReviewInSubprocess(taskSlug = '', options = {}) {
     try {
       child.stdin?.write(`${JSON.stringify({
         requestId,
-        action: 'getTaskGitDiffReview',
-        taskSlug: String(taskSlug || '').trim(),
-        options,
+        action,
+        ...payload,
       })}\n`)
     } catch (error) {
       settlePendingRequest(requestId, ({ reject: rejectPending }) => {
@@ -282,6 +281,19 @@ export function getTaskGitDiffReviewInSubprocess(taskSlug = '', options = {}) {
       stopGitDiffWorker()
     }
   })
+}
+
+export function getTaskGitDiffReviewInSubprocess(taskSlug = '', options = {}) {
+  return requestGitDiffWorker('getTaskGitDiffReview', {
+    taskSlug: String(taskSlug || '').trim(),
+    options,
+  }, options)
+}
+
+export function getWorkspaceGitDiffStatusSummaryInSubprocess(cwd = '', options = {}) {
+  return requestGitDiffWorker('getWorkspaceGitDiffStatusSummary', {
+    cwd: String(cwd || '').trim(),
+  }, options)
 }
 
 export function __getGitDiffWorkerPidForTest() {

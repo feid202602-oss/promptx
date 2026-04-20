@@ -8,7 +8,7 @@ import {
   registerTaskRoutes,
 } from './taskRoutes.js'
 
-test('task workspace diff summary service normalizes and reuses workspace summaries', () => {
+test('task workspace diff summary service normalizes and reuses workspace summaries', async () => {
   const lookups = []
   const service = createTaskWorkspaceDiffSummaryService({
     getPromptxCodexSessionById(sessionId) {
@@ -17,7 +17,7 @@ test('task workspace diff summary service normalizes and reuses workspace summar
         s2: { id: 's2', cwd: '/repo/a' },
       }[sessionId] || null
     },
-    getWorkspaceGitDiffStatusSummaryByCwd(cwd) {
+    async getWorkspaceGitDiffStatusSummaryByCwd(cwd) {
       lookups.push(cwd)
       return {
         supported: true,
@@ -38,7 +38,7 @@ test('task workspace diff summary service normalizes and reuses workspace summar
     },
   })
 
-  const items = service.listTaskWorkspaceDiffSummaries()
+  const items = await service.listTaskWorkspaceDiffSummaries()
   assert.deepEqual(lookups, ['/repo/a'])
   assert.deepEqual(items, [
     {
@@ -66,6 +66,67 @@ test('task workspace diff summary service normalizes and reuses workspace summar
       workspaceDiffSummary: createEmptyWorkspaceDiffSummary(),
     },
   ])
+})
+
+test('task routes await async workspace diff summaries endpoint', async () => {
+  const app = Fastify()
+  registerTaskRoutes(app, {
+    broadcastServerEvent: () => {},
+    buildTaskExports: () => ({ raw: '' }),
+    canEditTask: () => true,
+    createTask: () => null,
+    decorateTask: (task) => task,
+    decorateTaskList: (items) => items,
+    deleteTask: () => ({ error: 'not_found' }),
+    deleteTaskCodexRuns: () => {},
+    getPromptxCodexSessionById: () => null,
+    getRunningCodexRunByTaskSlug: () => null,
+    getTaskBySlug: (slug) => ({ slug, expired: false }),
+    getTaskGitDiffReviewInSubprocess: async () => ({}),
+    listTaskCodexRunsWithOptions: () => [],
+    listTaskWorkspaceDiffSummaries: async (limit) => [{
+      slug: `task-${limit}`,
+      workspaceDiffSummary: {
+        supported: true,
+        fileCount: 2,
+        additions: 3,
+        deletions: 1,
+        statsComplete: true,
+      },
+    }],
+    listTasks: () => [],
+    purgeExpiredContent: () => {},
+    removeAssetFiles: () => {},
+    runDispatchService: {
+      async startTaskRunForTask() {
+        return null
+      },
+    },
+    updateTask: () => null,
+    updateTaskCodexSession: () => null,
+  })
+  await app.ready()
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/tasks/workspace-diff-summaries?limit=7',
+    })
+
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(response.json().items, [{
+      slug: 'task-7',
+      workspaceDiffSummary: {
+        supported: true,
+        fileCount: 2,
+        additions: 3,
+        deletions: 1,
+        statsComplete: true,
+      },
+    }])
+  } finally {
+    await app.close()
+  }
 })
 
 test('task routes return 202 when runner dispatch remains pending', async () => {

@@ -31,12 +31,13 @@ function createTaskWorkspaceDiffSummaryService(options = {}) {
   const getPromptxCodexSessionById = options.getPromptxCodexSessionById || (() => null)
   const getWorkspaceGitDiffStatusSummaryByCwd = options.getWorkspaceGitDiffStatusSummaryByCwd || (() => null)
   const listTasks = options.listTasks || (() => [])
+  const logger = options.logger || null
 
-  function attachTaskWorkspaceDiffSummaries(items = []) {
+  async function attachTaskWorkspaceDiffSummaries(items = []) {
     const summaryByWorkspaceKey = new Map()
     const emptySummary = createEmptyWorkspaceDiffSummary()
 
-    return items.map((task) => {
+    return Promise.all(items.map(async (task) => {
       const sessionId = String(task?.codexSessionId || '').trim()
       if (!sessionId) {
         return {
@@ -48,19 +49,36 @@ function createTaskWorkspaceDiffSummaryService(options = {}) {
       const session = getPromptxCodexSessionById(sessionId)
       const workspaceKey = String(session?.cwd || sessionId).trim()
       if (!summaryByWorkspaceKey.has(workspaceKey)) {
-        const payload = session?.cwd ? getWorkspaceGitDiffStatusSummaryByCwd(session.cwd) : null
-        summaryByWorkspaceKey.set(workspaceKey, toWorkspaceDiffSummary(payload))
+        const summaryPromise = (async () => {
+          if (!session?.cwd) {
+            return emptySummary
+          }
+
+          try {
+            const payload = await getWorkspaceGitDiffStatusSummaryByCwd(session.cwd)
+            return toWorkspaceDiffSummary(payload)
+          } catch (error) {
+            logger?.warn?.({
+              error,
+              sessionId,
+              cwd: session.cwd,
+            }, 'failed to load workspace diff summary')
+            return emptySummary
+          }
+        })()
+        summaryByWorkspaceKey.set(workspaceKey, summaryPromise)
       }
 
       return {
         ...task,
-        workspaceDiffSummary: summaryByWorkspaceKey.get(workspaceKey) || emptySummary,
+        workspaceDiffSummary: await summaryByWorkspaceKey.get(workspaceKey) || emptySummary,
       }
-    })
+    }))
   }
 
-  function listTaskWorkspaceDiffSummaries(limit = 30) {
-    return attachTaskWorkspaceDiffSummaries(listTasks(limit)).map((task) => ({
+  async function listTaskWorkspaceDiffSummaries(limit = 30) {
+    const items = await attachTaskWorkspaceDiffSummaries(listTasks(limit))
+    return items.map((task) => ({
       slug: String(task?.slug || '').trim(),
       workspaceDiffSummary: task?.workspaceDiffSummary || createEmptyWorkspaceDiffSummary(),
     }))
@@ -140,7 +158,7 @@ function registerTaskRoutes(app, options = {}) {
   app.get('/api/tasks/workspace-diff-summaries', async (request) => {
     purgeExpiredContent()
     return {
-      items: listTaskWorkspaceDiffSummaries(request.query?.limit),
+      items: await listTaskWorkspaceDiffSummaries(request.query?.limit),
     }
   })
 

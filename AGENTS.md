@@ -38,6 +38,11 @@ pnpm dev
 - 样式采用 Tailwind 优先，并保持既定 stone 工具风：`rounded-sm`、主结构实线边框、次级强调使用虚线边框。
 - 共用逻辑优先放入 `packages/shared`，避免前后端重复实现。
 
+## 运行注意
+
+- 如果只是单独重启本机 `server`，不要手写一个不加载环境文件的最小启动方式。必须先加载根目录 `.env.local` / `.env`，否则当前 `server` 进程可能丢失 Web Push VAPID 等运行配置，表现为 iOS 端任务完成后不推送，`/api/push/status?bootstrap=1` 返回 `501`，日志出现 `push-config-missing`。
+- 更完整说明见 `apps/server/README.md` 的“运行与重启注意”。
+
 ## 产品术语约定
 
 - 当前工作台的产品心智是：`任务 -> 项目 -> 目录 -> Codex 线程`。

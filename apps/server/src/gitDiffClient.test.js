@@ -111,3 +111,41 @@ test('git diff subprocess client returns the same task diff payload', async () =
     }
   }
 })
+
+test('git diff subprocess client returns workspace status summary by cwd', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-git-diff-client-summary-'))
+  const repoDir = path.join(tempDir, 'repo')
+  fs.mkdirSync(repoDir, { recursive: true })
+
+  git(repoDir, ['init'])
+  git(repoDir, ['config', 'user.email', 'promptx@example.com'])
+  git(repoDir, ['config', 'user.name', 'PromptX'])
+
+  fs.writeFileSync(path.join(repoDir, 'tracked.txt'), 'base\n')
+  git(repoDir, ['add', 'tracked.txt'])
+  git(repoDir, ['commit', '-m', 'init'])
+
+  try {
+    const { getWorkspaceGitDiffStatusSummaryByCwd } = await import(`./gitDiff.js?test=${Date.now()}`)
+    const {
+      getWorkspaceGitDiffStatusSummaryInSubprocess,
+      stopGitDiffWorker,
+    } = await import(`./gitDiffClient.js?test=${Date.now()}`)
+
+    fs.writeFileSync(path.join(repoDir, 'tracked.txt'), 'after\n')
+    fs.writeFileSync(path.join(repoDir, 'new-file.txt'), 'hello\n')
+
+    const directPayload = getWorkspaceGitDiffStatusSummaryByCwd(repoDir)
+    const workerPayload = await getWorkspaceGitDiffStatusSummaryInSubprocess(repoDir)
+
+    assert.deepEqual(workerPayload, directPayload)
+
+    stopGitDiffWorker()
+  } finally {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // Ignore sqlite handle cleanup timing in test process.
+    }
+  }
+})

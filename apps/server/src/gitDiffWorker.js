@@ -1,7 +1,10 @@
 import { createInterface } from 'node:readline'
 import process from 'node:process'
 
-import { getTaskGitDiffReview } from './gitDiff.js'
+import {
+  getTaskGitDiffReview,
+  getWorkspaceGitDiffStatusSummaryByCwd,
+} from './gitDiff.js'
 
 function writeMessage(payload = {}) {
   process.stdout.write(`${JSON.stringify(payload)}\n`)
@@ -21,19 +24,23 @@ function handleRequest(payload = {}) {
     return
   }
 
-  if (action !== 'getTaskGitDiffReview') {
-    writeMessage({
-      requestId,
-      ok: false,
-      error: {
-        message: `Unsupported git diff worker action: ${action || 'unknown'}`,
-      },
-    })
-    return
-  }
-
   try {
-    const result = getTaskGitDiffReview(payload.taskSlug, payload.options || {})
+    let result
+    if (action === 'getTaskGitDiffReview') {
+      result = getTaskGitDiffReview(payload.taskSlug, payload.options || {})
+    } else if (action === 'getWorkspaceGitDiffStatusSummary') {
+      result = getWorkspaceGitDiffStatusSummaryByCwd(payload.cwd)
+    } else {
+      writeMessage({
+        requestId,
+        ok: false,
+        error: {
+          message: `Unsupported git diff worker action: ${action || 'unknown'}`,
+        },
+      })
+      return
+    }
+
     writeMessage({
       requestId,
       ok: true,
